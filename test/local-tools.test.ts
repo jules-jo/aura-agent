@@ -130,4 +130,23 @@ describe("local-run tools", () => {
     expect(snap?.status).toBe("failed");
     expect(snap?.error).toContain("spawn failed");
   });
+
+  it("passes env through to the spawner when provided", async () => {
+    const store = new RunStore();
+    let seenEnv: Record<string, string> | undefined;
+    const tools = localRunTools(store, {
+      defaultCwd: "/tmp",
+      spawner: (options) => {
+        seenEnv = options.env;
+        return makeFakeChild().child;
+      },
+    });
+
+    await callHandler(tools, "local_dispatch", {
+      command: "echo $FOO",
+      env: { FOO: "bar" },
+    });
+
+    expect(seenEnv).toEqual({ FOO: "bar" });
+  });
 });

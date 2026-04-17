@@ -7,6 +7,7 @@ import type { RunStore } from "../runs/run-store.js";
 export interface SpawnOptions {
   cwd: string;
   command: string;
+  env?: Record<string, string>;
 }
 
 export type Spawner = (options: SpawnOptions) => ChildLike;
@@ -22,6 +23,7 @@ export interface ChildLike {
 const dispatchSchema = z.object({
   command: z.string().min(1).describe("Shell command to execute."),
   cwd: z.string().optional().describe("Working directory. Defaults to the TUI cwd."),
+  env: z.record(z.string(), z.string()).optional().describe("Extra environment variables."),
   iteration_lines: z
     .number()
     .int()
@@ -67,7 +69,11 @@ export function localRunTools(store: RunStore, options: LocalToolsOptions): Tool
         cwd,
         ...(args.iteration_lines !== undefined ? { iterationSize: args.iteration_lines } : {}),
       });
-      const child = spawner({ command: args.command, cwd });
+      const child = spawner({
+        command: args.command,
+        cwd,
+        ...(args.env !== undefined ? { env: args.env } : {}),
+      });
       wireChild(child, store, run.id);
       return {
         run_id: run.id,
@@ -123,8 +129,12 @@ function wireChild(child: ChildLike, store: RunStore, runId: string): void {
   child.onError((err) => store.failRun(runId, err.message));
 }
 
-const defaultSpawner: Spawner = ({ command, cwd }) => {
-  const proc = spawn(command, { cwd, shell: true });
+const defaultSpawner: Spawner = ({ command, cwd, env }) => {
+  const proc = spawn(command, {
+    cwd,
+    shell: true,
+    env: env ? { ...process.env, ...env } : process.env,
+  });
   return {
     onStdout: (listener) => {
       proc.stdout?.on("data", (buf: Buffer) => listener(buf.toString("utf8")));

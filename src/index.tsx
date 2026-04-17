@@ -3,10 +3,11 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
-import { phase2SystemMessage } from "./session/system-message.js";
+import { phase3SystemMessage } from "./session/system-message.js";
 import { RunStore } from "./runs/run-store.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
+import { wikiTools } from "./tools/wiki.js";
 import { CredentialStore } from "./ssh/credential-store.js";
 import { ConfirmationStore } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
@@ -22,12 +23,13 @@ async function main(): Promise<void> {
   const tools = [
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
     ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
+    ...wikiTools({ rootDir: process.cwd(), confirmations }),
   ];
   const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
   const session = await startSession({
     logLevel: "none",
     tools,
-    systemMessage: phase2SystemMessage,
+    systemMessage: phase3SystemMessage,
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });

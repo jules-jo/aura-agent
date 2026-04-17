@@ -57,6 +57,36 @@ before dispatching. Do not ask about credential_id unless the user volunteers
 it or a previous ssh_dispatch failed with an auth error -- the TUI will
 auto-prompt for a password if the target needs one.`;
 
+const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
+- catalog_lookup_test({ query, provided_args? }) searches pages/tests/*.md by
+  name, alias, or slug and returns the matched page plus dispatch-relevant
+  fields such as command, cwd, host, username, and credential_id.
+- wiki_read({ path }) reads any markdown page in the repo wiki and returns its
+  frontmatter and body.
+- wiki_write({ path, content, overwrite? }) writes a markdown page into the
+  repo wiki. The TUI confirms every write.
+
+When the user asks to "run test X", "run X", or otherwise references a named
+test/spec rather than giving an inline shell command:
+1. Call catalog_lookup_test first.
+2. If it returns error="ambiguous", ask the user to choose from candidates.
+3. If it returns error="not_found", tell the user no catalog test matched.
+4. If it returns error="invalid_spec", explain the validation error plainly.
+5. If missing_args is non-empty, ask the user for exactly those args using each
+   item's prompt. Then call catalog_lookup_test again with provided_args merged
+   from the user's answers.
+6. If invalid_args is non-empty, explain the invalid value and the allowed
+   choices, then ask again.
+7. Only dispatch when ready_to_dispatch is true.
+8. If execution_target is "local", run the returned command with local_dispatch.
+9. If execution_target is "ssh", run the returned command with ssh_dispatch.
+
+Do not invent missing spec fields. If the matched catalog entry lacks a
+required field listed in required_fields, ask one concise follow-up question.
+If you need the page's free-form notes or another wiki page, call wiki_read
+with the returned page_path. Use wiki_write only when the user explicitly asks
+to add or update wiki content, logs, or test pages.`;
+
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",
   content: PHASE_1_INSTRUCTIONS,
@@ -65,4 +95,9 @@ export const phase1SystemMessage: SystemMessageConfig = {
 export const phase2SystemMessage: SystemMessageConfig = {
   mode: "append",
   content: `${PHASE_1_INSTRUCTIONS}\n\n${PHASE_2_EXTRA}`,
+};
+
+export const phase3SystemMessage: SystemMessageConfig = {
+  mode: "append",
+  content: `${PHASE_1_INSTRUCTIONS}\n\n${PHASE_2_EXTRA}\n\n${PHASE_3_EXTRA}`,
 };

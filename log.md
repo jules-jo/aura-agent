@@ -1,5 +1,34 @@
 # Wiki Log
 
+## [2026-04-17] build | P3 schema + arg resolution + wiki writes
+Expanded the first P3 slice into a more realistic catalog surface. Test specs
+are now validated against a Zod-backed schema when `catalog_lookup_test`
+matches a page, including SSH-target checks like requiring `username` for
+non-local hosts and duplicate-arg/default-choice validation. The tool also
+accepts `provided_args` and resolves `{{arg}}` placeholders in command/cwd/env
+and other dispatch fields, returning `missing_args`, `invalid_args`, and
+`ready_to_dispatch` so the model can ask only for what the spec actually
+needs. Added `wiki_write` as the first side-effecting wiki tool; it writes
+markdown pages inside the repo and uses the same TUI confirmation pattern as
+SSH actions. Added a second concrete test page,
+`pages/tests/local-vitest-pattern.md`, to exercise required-arg catalog
+resolution for focused test runs. This still stops short of P6: there is no
+parser-driven stop/notify loop yet, and write-side auto-logging is still a
+future orchestration step rather than something the runtime performs by itself.
+
+## [2026-04-17] build | P3 wiki catalog slice landed
+Added the first read-only wiki/catalog slice for Phase 3. New in-process SDK
+tools `wiki_read` and `catalog_lookup_test` can now read markdown pages from
+the repo and resolve named test specs from `pages/tests/*.md`. Added the
+first concrete spec page, `pages/tests/local-vitest.md`, so the model has a
+real catalog entry to target for "run test X" flows. Updated the system
+message to route named-test requests through the catalog before dispatching,
+and extended `local_dispatch` to accept `env` so catalog entries can carry
+local environment overrides. This is intentionally only the first P3 slice:
+there is still no `wiki_write`, missing-argument elicitation is still handled
+by normal model follow-up questions rather than SDK UI primitives, and the
+catalog is not yet tied into P4 credentials or P6 parsing/logging.
+
 ## [2026-04-17] build | P2 SSH execution landed
 Added the SSH dispatch/poll/kill loop. Three new SDK-registered tools
 (`ssh_dispatch`, `ssh_poll`, `ssh_kill`) in `src/tools/ssh-run.ts`; they sit
@@ -60,7 +89,7 @@ tool dispatch-plumbing, since-iteration slicing, run_not_found, error path).
 Noted SDK quirk: `@github/copilot-sdk`'s transitive `vscode-jsonrpc/node`
 import lacks `.js` extension and breaks vitest's ESM resolver -- worked
 around by `vi.mock('@github/copilot-sdk', ...)` in the tool test since
-`defineTool` is a trivial passthrough.
+   `defineTool` is a trivial passthrough.
 
 ## [2026-04-17] decision | P1 tools are SDK-native, not MCP subprocess
 Roadmap originally described P1 as "one MCP tool server exposing

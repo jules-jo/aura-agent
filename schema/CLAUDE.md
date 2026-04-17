@@ -13,6 +13,7 @@ aura-agent/
     architecture/   # System design, components, data flow
     design/         # Feature specs, UX, behavioral contracts
     decisions/      # ADRs -- why a choice was made over alternatives
+    tests/          # One page per runnable catalog test/spec
     sources/        # One page per ingested raw source (summary + takeaways)
   schema/           # Wiki configuration (this file)
   index.md          # Content catalog with links and summaries
