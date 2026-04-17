@@ -1,5 +1,15 @@
 # Wiki Log
 
+## [2026-04-17] verify | P0 validated on Windows host
+User ran `npm install`, `npm run typecheck`, `npm test`, `npm start` on the
+Windows target and confirmed the TUI boots, a prompt round-trips to the
+model, and the streaming response renders in the chat pane. All Phase 0
+done-when criteria met. Project also published to
+https://github.com/jules-jo/aura-agent (public) -- initial commit contains
+the wiki + P0 scaffold; local-only git identity set to
+`jules-jo@users.noreply.github.com` to keep user's real email out of public
+history. Next: Phase 1 (local dispatch loop) per `pages/design/roadmap.md`.
+
 ## [2026-04-17] build | P0 walking skeleton landed
 Scaffolded Phase 0 per `pages/design/roadmap.md`. Node 20 + TS ESM project,
 `@github/copilot-sdk` wired via `CopilotClient` + `createSession({ model,
