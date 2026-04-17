@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Box, Text } from "ink";
-import { ChatPane, type ChatMessage } from "./components/chat-pane.js";
+import { Box, Text, Static } from "ink";
+import { ChatPane } from "./components/chat-pane.js";
+import { MessageView, type ChatMessage } from "./components/message-view.js";
 import { RunPane } from "./components/run-pane.js";
 import { PromptInput } from "./components/prompt-input.js";
 import { PasswordPrompt } from "./components/password-prompt.js";
@@ -39,17 +40,7 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
   const [error, setError] = useState<string | undefined>(undefined);
   const [currentModel, setCurrentModel] = useState<string | undefined>(() => session.getModel());
   const [availableModels, setAvailableModels] = useState<AuraModelInfo[] | null>(null);
-  const [thinkingTick, setThinkingTick] = useState(0);
   const nextId = useRef(0);
-
-  useEffect(() => {
-    if (status !== "thinking") return;
-    setThinkingTick(0);
-    const timer = setInterval(() => {
-      setThinkingTick((t) => t + 1);
-    }, 500);
-    return () => clearInterval(timer);
-  }, [status]);
 
   const makeId = (): string => {
     const id = `m${nextId.current}`;
@@ -154,6 +145,9 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
 
   return (
     <Box flexDirection="column">
+      <Static items={messages}>
+        {(m) => <MessageView key={m.id} message={m} />}
+      </Static>
       <Box>
         <Text bold color="magenta">aura</Text>
         <Text color="gray"> -- test-running agent -- ctrl+c to exit</Text>
@@ -164,11 +158,10 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
       <Box flexDirection="row">
         <Box flexDirection="column" width="60%">
           <ChatPane
-            messages={messages}
+            historyLength={messages.length}
             pending={pending}
             status={status}
             error={error}
-            thinkingTick={thinkingTick}
           />
         </Box>
         <Box flexDirection="column" width="40%">
