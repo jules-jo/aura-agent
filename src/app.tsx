@@ -91,13 +91,19 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
     return list;
   }, [availableModels, session]);
 
+  useEffect(() => {
+    void fetchModels().catch(() => {
+      // Best effort only. The header can still fall back to the raw model id.
+    });
+  }, [fetchModels]);
+
   const handleModelCommand = useCallback(
     async (rawArg: string): Promise<void> => {
       const arg = rawArg.trim();
       try {
         const list = await fetchModels();
         if (!arg) {
-          const active = session.getModel() ?? "(server default)";
+          const active = formatModelLabel(session.getModel(), list);
           const lines = [
             `active model: ${active}`,
             "available models:",
@@ -152,7 +158,7 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
         <Text bold color="magenta">aura</Text>
         <Text color="gray"> -- test-running agent -- ctrl+c to exit</Text>
         <Text color="gray"> -- model: </Text>
-        <Text color="cyan">{currentModel ?? "(server default)"}</Text>
+        <Text color="cyan">{formatModelLabel(currentModel, availableModels)}</Text>
         <Text color="gray"> (/model to switch)</Text>
       </Box>
       <Box flexDirection="row">
@@ -195,4 +201,10 @@ function parseSlashCommand(text: string): SlashCommand | null {
   const space = trimmed.indexOf(" ");
   if (space === -1) return { name: trimmed.toLowerCase(), rest: "" };
   return { name: trimmed.slice(0, space).toLowerCase(), rest: trimmed.slice(space + 1) };
+}
+
+function formatModelLabel(currentModel: string | undefined, models: AuraModelInfo[] | null): string {
+  if (!currentModel) return "(server default)";
+  const match = models?.find((model) => model.id === currentModel);
+  return match?.name ?? currentModel;
 }

@@ -142,6 +142,21 @@ describe("App", () => {
     expect(lastFrame() ?? "").toContain("(server default)");
   });
 
+  it("shows the model display name when the current model id matches the model list", async () => {
+    const { session } = makeFakeSession({
+      initialModel: "anthropic/claude-opus-4-6",
+      models: [{ id: "anthropic/claude-opus-4-6", name: "Claude Opus 4.6" }],
+    });
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const { lastFrame } = render(
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("model: Claude Opus 4.6");
+  });
+
   it("keeps the thinking indicator visible after a final message when send() is still in flight", async () => {
     const { session, emit, completeNextSend } = makeFakeSession({ manualSendCompletion: true });
     const store = new RunStore();

@@ -63,8 +63,7 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
   if (!resolvedModel) {
     try {
       const models = await client.listModels();
-      resolvedModel = models.find((model) => model.id === PREFERRED_DEFAULT_MODEL)?.id
-        ?? models[0]?.id;
+      resolvedModel = pickDefaultModel(models)?.id;
     } catch {
       // Auth or transport error -- fall through and let the SDK pick; header
       // will simply omit the model indicator until the user runs /model.
@@ -77,6 +76,12 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
     ...(options.systemMessage ? { systemMessage: options.systemMessage } : {}),
   });
   let currentModel: string | undefined = resolvedModel;
+  try {
+    currentModel = (await session.rpc.model.getCurrent()).modelId ?? currentModel;
+  } catch {
+    // Best effort only. If the SDK cannot report the active model, keep the
+    // resolved startup choice (or undefined when the server picked the default).
+  }
   const modelListeners = new Set<(id: string) => void>();
   const notifyModel = (id: string): void => {
     for (const l of modelListeners) l(id);
@@ -88,6 +93,11 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
   };
 
   const unsubscribeAll = session.on((event: SessionEvent) => {
+    if (event.type === "session.model_change") {
+      currentModel = event.data.newModel;
+      notifyModel(event.data.newModel);
+      return;
+    }
     if (event.type === "assistant.message_delta") {
       const text = event.data.deltaContent;
       if (text) emit({ kind: "delta", text });
@@ -148,4 +158,21 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
       }
     },
   };
+}
+
+function pickDefaultModel(models: readonly ModelInfo[]): ModelInfo | undefined {
+  const preferredNeedle = normalizeModelIdentifier(PREFERRED_DEFAULT_MODEL);
+  const preferred = models.find((model) => {
+    const id = normalizeModelIdentifier(model.id);
+    const name = normalizeModelIdentifier(model.name);
+    return id === preferredNeedle
+      || name === preferredNeedle
+      || id.includes(preferredNeedle)
+      || name.includes(preferredNeedle);
+  });
+  return preferred ?? models[0];
+}
+
+function normalizeModelIdentifier(value: string | undefined): string {
+  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }

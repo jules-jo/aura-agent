@@ -8,10 +8,17 @@ interface MockModelInfo {
 const mockState = vi.hoisted(() => ({
   models: [] as MockModelInfo[],
   createSessionCalls: [] as Array<Record<string, unknown>>,
+  currentModelFromRpc: undefined as string | undefined,
 }));
 
 vi.mock("@github/copilot-sdk", () => {
   class MockSession {
+    rpc = {
+      model: {
+        getCurrent: async () => ({ modelId: mockState.currentModelFromRpc }),
+      },
+    };
+
     on(): () => void {
       return () => {};
     }
@@ -54,11 +61,13 @@ describe("startSession model selection", () => {
   beforeEach(() => {
     mockState.models = [];
     mockState.createSessionCalls = [];
+    mockState.currentModelFromRpc = undefined;
   });
 
   afterEach(() => {
     mockState.models = [];
     mockState.createSessionCalls = [];
+    mockState.currentModelFromRpc = undefined;
   });
 
   it("prefers claude-opus-4.6 when no explicit model is provided", async () => {
@@ -71,6 +80,19 @@ describe("startSession model selection", () => {
 
     expect(mockState.createSessionCalls[0]?.model).toBe("claude-opus-4.6");
     expect(session.getModel()).toBe("claude-opus-4.6");
+    await session.close();
+  });
+
+  it("matches claude-opus-4.6 across provider-prefixed ids and display names", async () => {
+    mockState.models = [
+      { id: "gpt-5.4", name: "GPT-5.4" },
+      { id: "anthropic/claude-opus-4-6", name: "Claude Opus 4.6" },
+    ];
+
+    const session = await startSession();
+
+    expect(mockState.createSessionCalls[0]?.model).toBe("anthropic/claude-opus-4-6");
+    expect(session.getModel()).toBe("anthropic/claude-opus-4-6");
     await session.close();
   });
 
@@ -97,6 +119,17 @@ describe("startSession model selection", () => {
 
     expect(mockState.createSessionCalls[0]?.model).toBe("claude-sonnet-4");
     expect(session.getModel()).toBe("claude-sonnet-4");
+    await session.close();
+  });
+
+  it("uses the SDK-reported active model when the server chose the default", async () => {
+    mockState.models = [];
+    mockState.currentModelFromRpc = "gpt-5.4";
+
+    const session = await startSession();
+
+    expect(mockState.createSessionCalls[0]?.model).toBeUndefined();
+    expect(session.getModel()).toBe("gpt-5.4");
     await session.close();
   });
 });
