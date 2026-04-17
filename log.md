@@ -1,0 +1,92 @@
+# Wiki Log
+
+## [2026-04-17] build | P0 walking skeleton landed
+Scaffolded Phase 0 per `pages/design/roadmap.md`. Node 20 + TS ESM project,
+`@github/copilot-sdk` wired via `CopilotClient` + `createSession({ model,
+onPermissionRequest })` (the SDK's `SessionConfig` makes
+`onPermissionRequest` required -- wired a temporary deny-all handler for P0
+since no tools are registered yet; real HITL handler lands in P5). Session
+subscription uses the typed `on(handler)` overload and maps
+`assistant.message_delta` -> streaming deltas and `assistant.message` -> final
+text. Ink app has two panes (chat, run placeholder) plus a single-line
+prompt input; ctrl+c exits via ink's default handler with cleanup in
+`main()`'s `finally`. Vitest + `ink-testing-library` smoke tests cover
+initial render, final message, and streaming deltas; `tsc --noEmit` is
+clean. Files: `package.json`, `tsconfig.json`, `vitest.config.ts`,
+`.gitignore` (preemptively excludes `*.age`/`credentials.age`),
+`src/{index,app}.tsx`, `src/components/{chat,run}-pane.tsx`,
+`src/components/prompt-input.tsx`, `src/session/copilot.ts`,
+`test/app.test.tsx`, `README.md`. SDK quirks discovered while wiring:
+`logLevel` values are `none|error|warning|info|debug|all` (not
+`silent|warn`), and `session.on` has both typed and all-events overloads.
+
+## [2026-04-17] plan | Phased roadmap for v1
+Added `design/roadmap.md` with 10 phases (P0 walking skeleton through P9
+polish). Ordering prioritises de-risking the Copilot-SDK-on-Windows-with-Ink
+integration (P0) and proving the dispatch-poll-summarise loop locally (P1)
+before adding SSH (P2), catalog (P3), credentials (P4), permissions (P5),
+structured monitoring + auto-log (P6), reattachment (P7), compaction (P8),
+and polish (P9). Explicit non-goals for v1: cross-channel notifications,
+multi-tenant, containers/CI targets, parallel execution, web UI.
+
+## [2026-04-17] decision | Reattachment is a v1 requirement
+User confirmed reattachment (auto-resume of a still-running remote test after a
+TUI crash) is required, not optional. Pinned in `design/persistence-and-recovery.md`.
+The `ssh.dispatch` run-state JSON plus the remote PID file already provide
+everything the reattach flow needs; no scope change, just lifting the status
+from "default" to "required".
+
+## [2026-04-17] design | Credentials (Q14) + Windows host (Q16)
+User chose option #2 for SSH credentials -- age-encrypted file outside the
+wiki, master passphrase prompted once per session, decrypted buffer in memory
+only. Confirmed Windows as the TUI host. Added `design/credentials.md` with
+the file shape, `age` encryption rationale, `/creds` management commands, and
+gitignore rules. Added `architecture/host-platform.md` pinning Windows specifics
+(env-paths for `%APPDATA%`, `ssh2` over shell-out, Windows Terminal, Node 18+,
+`gh copilot` auth). Updated `test-catalog.md` to drop `user/key` fields in favour
+of `credential_id`; updated `execution-and-monitoring.md` and
+`persistence-and-recovery.md` for credential lookup and Windows data-dir paths.
+Closed Q14 and Q16. Q17 marked N/A (key-auth passphrase not relevant while on
+password-auth). Q18 (SDK session resume vs our crash recovery) left open but
+non-blocking -- remote-process reattach is ours to own regardless.
+
+## [2026-04-17] design | SDK deep-dive, second-round resolutions
+Pulled `nodejs/src/types.ts` from `github/copilot-sdk` and resolved Q11
+(hooks are fully async -- `PreToolUseHandler` returns `Promise<...>`, output
+supports `permissionDecision` "allow"/"deny"/"ask" plus arg modification),
+Q12 (stdio subprocess MCP transport), Q13 (Ink), Q15 (hybrid compaction --
+SDK `InfiniteSessionConfig` + test-aware rollup). Added
+`architecture/copilot-sdk-hooks.md` with the full hook surface and a
+code sketch for the permission hook, and `design/context-compaction.md`.
+**Q14 (password-based SSH credentials in md files) flagged as a security
+concern rather than filed** -- user needs to pick a safer store before any
+test spec is written. Discovered useful bonuses in the SDK: built-in
+elicitation (`session.ui.confirm/select/input`), `InfiniteSessionConfig`
+for auto-compaction, skills/custom-agent support, session resume hints
+via `onSessionStart.source`. Added Q18/Q19 to open-questions.
+
+## [2026-04-17] design | Initial design resolution
+Resolved all 10 open questions from the initial brief. Confirmed
+`@github/copilot-sdk` (Node/TS, MCP tools, hooks, sub-agents) as the SDK
+([[copilot-sdk]]). Committed to SSH-first execution with local as
+SSH-to-localhost ([[execution-and-monitoring]]), wiki-backed test catalog with
+per-test stop/notify policy and summary template ([[test-catalog]]),
+side-effect-only permission prompts with bypass mode ([[permission-model]]),
+structured-default summary with per-test Mustache override ([[summary-format]]),
+auto-logging to `log.md` + run page + wiki index, and crash recovery via
+run-state + remote PID files distinct from SDK session memory
+([[persistence-and-recovery]]). Added seven new pages: architecture/overview,
+architecture/copilot-sdk, design/test-catalog, design/permission-model,
+design/execution-and-monitoring, design/summary-format, design/persistence-and-recovery.
+Five new questions surfaced (Copilot SDK hook blocking semantics, MCP
+registration API shape, TUI framework choice, SSH passphrase flow, long-run
+context-window compaction) -- tracked in [[open-questions]].
+
+## [2026-04-16] ingest | Aura Agent initial brief
+User-authored project brief filed as `raw/aura-agent-brief-2026-04-16.md`. Established project identity: TUI-first personal test-running agent with natural-language input, missing-info prompting, live status reporting, per-error stop/notify policy, end-of-run summary, HITL-by-default with bypass mode, targeted on the "Github Copilot SDK". Created `pages/sources/aura-agent-brief.md` (source summary), `pages/design/open-questions.md` (10 flagged ambiguities). Updated `schema/CLAUDE.md` Domain section with the real project description. 10 questions surfaced back to user -- biggest is Q1 (which "Copilot SDK" -- GitHub Models REST, Copilot Extensions, Copilot CLI, or VS Code Language Model API).
+
+## [2026-04-16] ingest | Karpathy LLM Wiki Pattern
+Seeded the wiki with Andrej Karpathy's gist on the LLM Wiki pattern (raw/karpathy-llm-wiki.md). Created `pages/sources/karpathy-llm-wiki.md` as the source summary and `pages/concepts/llm-wiki-pattern.md` plus `pages/concepts/rag-vs-wiki.md` as the two foundational concept pages the rest of the wiki will build on. This establishes the three-layer architecture (raw, wiki, schema) and three operations (ingest, query, lint) that govern how this wiki is maintained.
+
+## [2026-04-16] init | Wiki created
+Created wiki structure for the aura-agent project following Karpathy's LLM Wiki pattern. Scaffolded `schema/CLAUDE.md`, `index.md`, `log.md`, and the `raw/`, `pages/concepts/`, `pages/architecture/`, `pages/design/`, `pages/decisions/`, `pages/sources/` directories. Domain section in the schema is a placeholder -- tighten it once the aura-agent project scope is locked.
