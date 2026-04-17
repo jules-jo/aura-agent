@@ -54,7 +54,14 @@ export interface SshToolsOptions {
   pollIntervalMs?: number;
   readyTimeoutMs?: number;
   useAgentAuth?: boolean;
+  /** Max retries when STATE=stopped but the exit file is not yet visible. */
+  exitFileRetryCount?: number;
+  /** Delay between exit-file retries in ms. */
+  exitFileRetryDelayMs?: number;
 }
+
+const DEFAULT_EXIT_RETRY_COUNT = 5;
+const DEFAULT_EXIT_RETRY_DELAY_MS = 300;
 
 const reattachSchema = z.object({
   run_id: z.string().describe("Run identifier returned by a prior ssh_dispatch."),
@@ -299,20 +306,38 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       });
       const firstPoll = await session.exec(tail);
       const parsed = parsePollOutput(firstPoll.stdout);
-      if (parsed.output.length > 0) {
-        const lines = parsed.output.split(/\r?\n/).filter((line) => line.length > 0);
-        if (lines.length > 0) store.appendLines(record.runId, lines);
-      }
-      if (parsed.state === "stopped" || parsed.state === "missing") {
-        const exit = parsed.exitCode;
-        store.completeRun(record.runId, exit);
-        await options.runStateStore.markComplete(record.runId, exit);
+      applyPollOutput(store, record.runId, parsed);
+      if (parsed.state === "missing") {
+        store.failRun(record.runId, "remote run directory missing");
+        await options.runStateStore.markComplete(record.runId, null);
         await session.close();
         return {
           run_id: record.runId,
-          status: exit === 0 ? "completed" : "failed",
-          exit_code: exit,
+          status: "failed",
+          exit_code: null,
           total_bytes: parsed.totalBytes,
+          error: "remote run directory missing",
+        };
+      }
+      if (parsed.state === "stopped") {
+        const finalized = await finalizeStoppedRun({
+          session,
+          store,
+          runId: record.runId,
+          remoteBase: record.remoteBase,
+          initial: parsed,
+          retryCount: options.exitFileRetryCount ?? DEFAULT_EXIT_RETRY_COUNT,
+          retryDelayMs: options.exitFileRetryDelayMs ?? DEFAULT_EXIT_RETRY_DELAY_MS,
+        });
+        store.completeRun(record.runId, finalized.exitCode);
+        await options.runStateStore.markComplete(record.runId, finalized.exitCode);
+        await session.close();
+        const finalStatus = store.get(record.runId)?.status ?? "completed";
+        return {
+          run_id: record.runId,
+          status: finalStatus,
+          exit_code: finalized.exitCode,
+          total_bytes: finalized.totalBytes,
         };
       }
       const entry: ActiveSshRun = {
@@ -360,10 +385,24 @@ async function runPoller(
         if (lines.length > 0) store.appendLines(runId, lines);
         entry.byteOffset = parsed.totalBytes;
       }
-      if (parsed.state === "stopped" || parsed.state === "missing") {
-        const exit = parsed.exitCode;
-        store.completeRun(runId, exit);
-        await options.runStateStore.markComplete(runId, exit);
+      if (parsed.state === "missing") {
+        store.failRun(runId, "remote run directory missing");
+        await options.runStateStore.markComplete(runId, null);
+        break;
+      }
+      if (parsed.state === "stopped") {
+        const finalized = await finalizeStoppedRun({
+          session: entry.session,
+          store,
+          runId,
+          remoteBase: entry.remoteBase,
+          initial: parsed,
+          retryCount: options.exitFileRetryCount ?? DEFAULT_EXIT_RETRY_COUNT,
+          retryDelayMs: options.exitFileRetryDelayMs ?? DEFAULT_EXIT_RETRY_DELAY_MS,
+        });
+        entry.byteOffset = finalized.totalBytes;
+        store.completeRun(runId, finalized.exitCode);
+        await options.runStateStore.markComplete(runId, finalized.exitCode);
         break;
       }
       await delay(interval);
@@ -379,6 +418,57 @@ async function runPoller(
       /* best effort */
     }
   }
+}
+
+interface FinalizeArgs {
+  session: SshSession;
+  store: RunStore;
+  runId: string;
+  remoteBase: string;
+  initial: ReturnType<typeof parsePollOutput>;
+  retryCount: number;
+  retryDelayMs: number;
+}
+
+interface FinalizeResult {
+  exitCode: number | null;
+  totalBytes: number;
+}
+
+async function finalizeStoppedRun(args: FinalizeArgs): Promise<FinalizeResult> {
+  let exitCode = args.initial.exitCode;
+  let totalBytes = args.initial.totalBytes;
+  let attempts = 0;
+  while (exitCode === null && attempts < args.retryCount) {
+    await delay(args.retryDelayMs);
+    const script = buildTailScript({
+      remoteBase: args.remoteBase,
+      runId: args.runId,
+      byteOffset: totalBytes,
+    });
+    const result = await args.session.exec(script);
+    if (result.exitCode !== 0 && result.exitCode !== null) break;
+    const parsed = parsePollOutput(result.stdout);
+    applyPollOutput(args.store, args.runId, parsed);
+    if (parsed.totalBytes > totalBytes) totalBytes = parsed.totalBytes;
+    if (parsed.exitCode !== null) {
+      exitCode = parsed.exitCode;
+      break;
+    }
+    if (parsed.state !== "stopped") break;
+    attempts += 1;
+  }
+  return { exitCode, totalBytes };
+}
+
+function applyPollOutput(
+  store: RunStore,
+  runId: string,
+  parsed: ReturnType<typeof parsePollOutput>,
+): void {
+  if (parsed.output.length === 0) return;
+  const lines = parsed.output.split(/\r?\n/).filter((line) => line.length > 0);
+  if (lines.length > 0) store.appendLines(runId, lines);
 }
 
 function delay(ms: number): Promise<void> {

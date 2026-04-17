@@ -481,6 +481,147 @@ describe("ssh-run tools", () => {
     expect(inMemory?.status).toBe("completed");
   });
 
+  it("ssh_reattach retries the tail when STATE=stopped but EXIT is not yet visible, and reports completed on the subsequent read", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const record = {
+      runId: "race-run",
+      host: "h.example",
+      port: 22,
+      username: "root",
+      command: "sleep 1 && echo done",
+      remoteBase: "~/.aura/runs",
+      remotePidPath: "~/.aura/runs/race-run/pid",
+      remoteLogPath: "~/.aura/runs/race-run/output.log",
+      startedAt: new Date().toISOString(),
+      status: "running" as const,
+    };
+    await runStateStore.create(record);
+    let tailCalls = 0;
+    const { client } = makeFakeClient(async (command) => {
+      if (command.includes("dispatch_ok")) {
+        return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
+      }
+      tailCalls += 1;
+      // First poll: stopped but EXIT not yet visible.
+      if (tailCalls === 1) {
+        return {
+          stdout: "STATE=stopped\nSIZE=5\n---OUTPUT---\ndone\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      // Subsequent polls: exit file visible with exit 0.
+      return {
+        stdout: "STATE=stopped\nEXIT=0\nSIZE=5\n---OUTPUT---\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 5,
+      exitFileRetryCount: 5,
+      exitFileRetryDelayMs: 5,
+    });
+    const result = await callHandler<{ status: string; exit_code: number | null }>(
+      tools,
+      "ssh_reattach",
+      { run_id: "race-run" },
+    );
+    expect(tailCalls).toBeGreaterThanOrEqual(2);
+    expect(result.status).toBe("completed");
+    expect(result.exit_code).toBe(0);
+    const persisted = await runStateStore.read("race-run");
+    expect(persisted?.status).toBe("completed");
+  });
+
+  it("ssh_reattach reports completed (not failed) when STATE=stopped and EXIT never appears", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const record = {
+      runId: "noexit-run",
+      host: "h.example",
+      port: 22,
+      username: "root",
+      command: "sleep 1 && echo done",
+      remoteBase: "~/.aura/runs",
+      remotePidPath: "~/.aura/runs/noexit-run/pid",
+      remoteLogPath: "~/.aura/runs/noexit-run/output.log",
+      startedAt: new Date().toISOString(),
+      status: "running" as const,
+    };
+    await runStateStore.create(record);
+    const { client } = makeFakeClient(async () => ({
+      stdout: "STATE=stopped\nSIZE=5\n---OUTPUT---\ndone\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 5,
+      exitFileRetryCount: 3,
+      exitFileRetryDelayMs: 2,
+    });
+    const result = await callHandler<{ status: string; exit_code: number | null }>(
+      tools,
+      "ssh_reattach",
+      { run_id: "noexit-run" },
+    );
+    expect(result.status).toBe("completed");
+    expect(result.exit_code).toBeNull();
+  });
+
+  it("ssh_reattach reports failed when the remote run directory is missing", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const record = {
+      runId: "gone-run",
+      host: "h.example",
+      port: 22,
+      username: "root",
+      command: "echo gone",
+      remoteBase: "~/.aura/runs",
+      remotePidPath: "~/.aura/runs/gone-run/pid",
+      remoteLogPath: "~/.aura/runs/gone-run/output.log",
+      startedAt: new Date().toISOString(),
+      status: "running" as const,
+    };
+    await runStateStore.create(record);
+    const { client } = makeFakeClient(async () => ({
+      stdout: "STATE=missing\n",
+      stderr: "",
+      exitCode: 0,
+    }));
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 5,
+    });
+    const result = await callHandler<{ status: string; exit_code: number | null; error?: string }>(
+      tools,
+      "ssh_reattach",
+      { run_id: "gone-run" },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.exit_code).toBeNull();
+    expect(result.error).toContain("missing");
+  });
+
   it("ssh_reattach returns run_not_found for an unknown run_id", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();

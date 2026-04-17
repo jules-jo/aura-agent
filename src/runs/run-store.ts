@@ -107,7 +107,9 @@ export class RunStore {
       const chunk = run.pendingLines.splice(0, run.pendingLines.length);
       run.iterations = [...run.iterations, makeIteration(run.iterations.length, chunk)];
     }
-    run.status = exitCode === 0 ? "completed" : "failed";
+    // null exit → completed with unknown code (process stopped but exit file
+    // unreadable). Only a non-zero exit counts as failure.
+    run.status = exitCode === null || exitCode === 0 ? "completed" : "failed";
     if (exitCode !== null) run.exitCode = exitCode;
     run.completedAt = new Date().toISOString();
     this.commit(run);

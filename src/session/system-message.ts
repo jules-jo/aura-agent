@@ -35,7 +35,10 @@ const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
   command. ALWAYS prefer ssh_reattach over a fresh ssh_dispatch when the
   user asks "what happened to that run?" or a prior ssh_poll returned an
   error. NEVER call ssh_dispatch a second time for the same logical command
-  unless the user explicitly asks you to re-run it.
+  unless the user explicitly asks you to re-run it. When ssh_reattach
+  returns status="completed" with exit_code=null, the remote process
+  stopped but the exit file was not readable -- report this as "completed
+  with unknown exit code" based on the log output, not as a failure.
 - ssh_kill({ run_id, signal? }) terminates a run. Use signal "KILL" only
   after a "TERM" did not stop the process. ssh_kill is also confirmed by the
   TUI; a user_declined response means the user wants the run left alone.
