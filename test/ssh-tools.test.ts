@@ -145,7 +145,7 @@ describe("ssh-run tools", () => {
     expect(store.get(result.run_id)?.status).toBe("failed");
   });
 
-  it("ssh_dispatch connects without a password when credential_id is omitted", async () => {
+  it("ssh_dispatch skips password prompt when useAgentAuth is enabled and credential_id is omitted", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();
     const runStateStore = new RunStateStore({ dataDir });
@@ -172,6 +172,7 @@ describe("ssh-run tools", () => {
       credentials,
       runStateStore,
       pollIntervalMs: 50,
+      useAgentAuth: true,
     });
     const result = await callHandler<{ run_id: string }>(tools, "ssh_dispatch", {
       host: "h",
@@ -238,62 +239,7 @@ describe("ssh-run tools", () => {
     }
   });
 
-  it("ssh_dispatch prompts for password when agent auth fails and no credential_id given", async () => {
-    const store = new RunStore();
-    const credentials = new CredentialStore();
-    const runStateStore = new RunStateStore({ dataDir });
-    let connectAttempts = 0;
-    const { client: innerClient } = makeFakeClient(async (command) => {
-      if (command.includes("dispatch_ok")) {
-        return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
-      }
-      return {
-        stdout: "STATE=stopped\nEXIT=0\nSIZE=0\n---OUTPUT---\n",
-        stderr: "",
-        exitCode: 0,
-      };
-    });
-    const retryingClient: typeof innerClient = {
-      connect: async (opts) => {
-        connectAttempts += 1;
-        if (connectAttempts === 1 && opts.password === undefined) {
-          throw new Error("All configured authentication methods failed");
-        }
-        return innerClient.connect(opts);
-      },
-    };
-    const tools = sshRunTools(store, {
-      sshClient: retryingClient,
-      credentials,
-      runStateStore,
-      pollIntervalMs: 50,
-    });
-    const promise = callHandler<{ run_id: string }>(tools, "ssh_dispatch", {
-      host: "h.example",
-      username: "root",
-      command: "uname -a",
-    });
-    // wait for the pending prompt to materialise after the auth failure
-    for (let i = 0; i < 50; i += 1) {
-      if (credentials.getPending().length > 0) break;
-      await new Promise((r) => setImmediate(r));
-    }
-    expect(credentials.getPending().length).toBe(1);
-    expect(credentials.getPending()[0]?.credentialId).toBe("root@h.example");
-    credentials.resolveNext("the-password");
-    const result = await promise;
-    expect(result.run_id).toBeDefined();
-    expect(connectAttempts).toBe(2);
-    for (let i = 0; i < 100; i += 1) {
-      if (store.get(result.run_id)?.status === "completed") {
-        const persisted = await runStateStore.read(result.run_id);
-        if (persisted?.status === "completed") break;
-      }
-      await new Promise((r) => setTimeout(r, 10));
-    }
-  });
-
-  it("ssh_dispatch does not retry when agent auth succeeds", async () => {
+  it("ssh_dispatch prompts for password upfront when credential_id is omitted", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();
     const runStateStore = new RunStateStore({ dataDir });
@@ -319,6 +265,59 @@ describe("ssh-run tools", () => {
       credentials,
       runStateStore,
       pollIntervalMs: 50,
+    });
+    const promise = callHandler<{ run_id: string }>(tools, "ssh_dispatch", {
+      host: "h.example",
+      username: "root",
+      command: "uname -a",
+    });
+    for (let i = 0; i < 50; i += 1) {
+      if (credentials.getPending().length > 0) break;
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(credentials.getPending().length).toBe(1);
+    expect(credentials.getPending()[0]?.credentialId).toBe("root@h.example");
+    expect(connectAttempts).toBe(0);
+    credentials.resolveNext("the-password");
+    const result = await promise;
+    expect(result.run_id).toBeDefined();
+    expect(connectAttempts).toBe(1);
+    for (let i = 0; i < 100; i += 1) {
+      if (store.get(result.run_id)?.status === "completed") {
+        const persisted = await runStateStore.read(result.run_id);
+        if (persisted?.status === "completed") break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  });
+
+  it("ssh_dispatch with useAgentAuth does not retry when agent auth succeeds", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const runStateStore = new RunStateStore({ dataDir });
+    let connectAttempts = 0;
+    const { client: innerClient } = makeFakeClient(async (command) => {
+      if (command.includes("dispatch_ok")) {
+        return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
+      }
+      return {
+        stdout: "STATE=stopped\nEXIT=0\nSIZE=0\n---OUTPUT---\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const spyingClient: typeof innerClient = {
+      connect: async (opts) => {
+        connectAttempts += 1;
+        return innerClient.connect(opts);
+      },
+    };
+    const tools = sshRunTools(store, {
+      sshClient: spyingClient,
+      credentials,
+      runStateStore,
+      pollIntervalMs: 50,
+      useAgentAuth: true,
     });
     const result = await callHandler<{ run_id: string }>(tools, "ssh_dispatch", {
       host: "h.example",

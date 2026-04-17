@@ -16,15 +16,18 @@ async function main(): Promise<void> {
   const credentials = new CredentialStore();
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
+  const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
   const tools = [
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
-    ...sshRunTools(runStore, { sshClient, credentials, runStateStore }),
+    ...sshRunTools(runStore, { sshClient, credentials, runStateStore, useAgentAuth }),
   ];
+  const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
   const session = await startSession({
     logLevel: "none",
     tools,
     systemMessage: phase2SystemMessage,
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
+    ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
   const { waitUntilExit } = render(
     <App session={session} runStore={runStore} credentials={credentials} />,
@@ -34,6 +37,12 @@ async function main(): Promise<void> {
   } finally {
     await session.close();
   }
+}
+
+function parsePositiveInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 main().catch((err: unknown) => {

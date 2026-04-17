@@ -51,6 +51,7 @@ export interface SshToolsOptions {
   runStateStore: RunStateStore;
   pollIntervalMs?: number;
   readyTimeoutMs?: number;
+  useAgentAuth?: boolean;
 }
 
 interface ActiveSshRun {
@@ -68,14 +69,17 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       "Start a command on a remote host over SSH. Returns a run_id. The remote process keeps running even if the SSH connection drops; poll with ssh_poll and terminate with ssh_kill.",
     parameters: dispatchSchema,
     handler: async (args) => {
-      const explicitCredId = args.credential_id;
-      let password: string | undefined = explicitCredId
-        ? await options.credentials.request({
-            credentialId: explicitCredId,
-            host: args.host,
-            username: args.username,
-          })
-        : undefined;
+      const credentialId = args.credential_id ?? `${args.username}@${args.host}`;
+      let password: string | undefined;
+      if (options.useAgentAuth) {
+        password = undefined;
+      } else {
+        password = await options.credentials.request({
+          credentialId,
+          host: args.host,
+          username: args.username,
+        });
+      }
       const connectOnce = (pw: string | undefined): Promise<SshSession> =>
         options.sshClient.connect({
           host: args.host,
@@ -88,10 +92,10 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       try {
         session = await connectOnce(password);
       } catch (err: unknown) {
-        if (!explicitCredId && password === undefined && isAuthError(err)) {
-          const implicitId = `${args.username}@${args.host}`;
+        if (password === undefined && isAuthError(err)) {
+          options.credentials.forget(credentialId);
           password = await options.credentials.request({
-            credentialId: implicitId,
+            credentialId,
             host: args.host,
             username: args.username,
           });

@@ -46,7 +46,10 @@ export interface StartSessionOptions {
   tools?: Tool<any>[];
   systemMessage?: SystemMessageConfig;
   onPermissionRequest?: PermissionHandler;
+  idleTimeoutMs?: number;
 }
+
+const DEFAULT_IDLE_TIMEOUT_MS = 600_000;
 
 export async function startSession(options: StartSessionOptions = {}): Promise<AuraSession> {
   const client = new CopilotClient({ logLevel: options.logLevel ?? "none" });
@@ -93,10 +96,11 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
     }
   });
 
+  const idleTimeoutMs = options.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
   return {
     async send(prompt: string): Promise<void> {
       try {
-        await session.sendAndWait({ prompt });
+        await session.sendAndWait({ prompt }, idleTimeoutMs);
       } catch (err: unknown) {
         emit({ kind: "error", message: toErrorMessage(err) });
       }
