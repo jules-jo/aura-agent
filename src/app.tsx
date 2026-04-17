@@ -134,7 +134,9 @@ export function App({ session, runStore, credentials }: Props): React.ReactEleme
       <Box>
         <Text bold color="magenta">aura</Text>
         <Text color="gray"> -- test-running agent -- ctrl+c to exit</Text>
-        {currentModel ? <Text color="gray"> -- model: {currentModel}</Text> : null}
+        <Text color="gray"> -- model: </Text>
+        <Text color="cyan">{currentModel ?? "(server default)"}</Text>
+        <Text color="gray"> (/model to switch)</Text>
       </Box>
       <Box flexDirection="row">
         <Box flexDirection="column" width="60%">

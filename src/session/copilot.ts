@@ -50,13 +50,27 @@ export interface StartSessionOptions {
 
 export async function startSession(options: StartSessionOptions = {}): Promise<AuraSession> {
   const client = new CopilotClient({ logLevel: options.logLevel ?? "none" });
+  // Resolve a concrete model id before createSession so the header can always
+  // display what is active. If the caller did not specify one, pick the first
+  // model the server exposes. listModels() triggers the client's auto-connect
+  // and the results are cached by the SDK so this is cheap.
+  let resolvedModel: string | undefined = options.model;
+  if (!resolvedModel) {
+    try {
+      const models = await client.listModels();
+      resolvedModel = models[0]?.id;
+    } catch {
+      // Auth or transport error -- fall through and let the SDK pick; header
+      // will simply omit the model indicator until the user runs /model.
+    }
+  }
   const session = await client.createSession({
     onPermissionRequest: options.onPermissionRequest ?? approveAll,
-    ...(options.model ? { model: options.model } : {}),
+    ...(resolvedModel ? { model: resolvedModel } : {}),
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.systemMessage ? { systemMessage: options.systemMessage } : {}),
   });
-  let currentModel: string | undefined = options.model;
+  let currentModel: string | undefined = resolvedModel;
   const modelListeners = new Set<(id: string) => void>();
   const notifyModel = (id: string): void => {
     for (const l of modelListeners) l(id);

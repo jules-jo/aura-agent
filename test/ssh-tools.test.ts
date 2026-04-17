@@ -154,8 +154,9 @@ describe("ssh-run tools", () => {
       if (command.includes("dispatch_ok")) {
         return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
       }
+      // return stopped so the poller exits cleanly before teardown
       return {
-        stdout: "STATE=running\nSIZE=0\n---OUTPUT---\n",
+        stdout: "STATE=stopped\nEXIT=0\nSIZE=0\n---OUTPUT---\n",
         stderr: "",
         exitCode: 0,
       };
@@ -181,6 +182,13 @@ describe("ssh-run tools", () => {
     expect(connectArgs).not.toBeNull();
     expect((connectArgs as unknown as { password?: string }).password).toBeUndefined();
     expect(credentials.getPending().length).toBe(0);
+    for (let i = 0; i < 100; i += 1) {
+      if (store.get(result.run_id)?.status === "completed") {
+        const check = await runStateStore.read(result.run_id);
+        if (check?.status === "completed") break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
     const persisted = await runStateStore.read(result.run_id);
     expect(persisted?.credentialId).toBeUndefined();
   });
@@ -214,12 +222,20 @@ describe("ssh-run tools", () => {
       credential_id: "c1",
       command: "x",
     });
-    // give the handler a tick to enqueue the password request
     await new Promise((r) => setImmediate(r));
     expect(credentials.getPending().length).toBe(1);
     credentials.resolveNext("resolved-pw");
     const result = await promise;
     expect(result.run_id).toBeDefined();
+    // wait for the poll loop to persist markComplete so afterEach cleanup
+    // does not race with an in-flight atomic rename
+    for (let i = 0; i < 100; i += 1) {
+      if (store.get(result.run_id)?.status === "completed") {
+        const persisted = await runStateStore.read(result.run_id);
+        if (persisted?.status === "completed") break;
+      }
+      await new Promise((r) => setTimeout(r, 10));
+    }
   });
 
   it("ssh_kill sends a kill script over the live session", async () => {
@@ -259,5 +275,7 @@ describe("ssh-run tools", () => {
     });
     expect(kill.stdout).toContain("KILL=signalled");
     expect(calls.some((c) => c.includes("kill -TERM"))).toBe(true);
+    // give the poller a chance to observe stopPoller and exit before cleanup
+    await new Promise((r) => setTimeout(r, 80));
   });
 });

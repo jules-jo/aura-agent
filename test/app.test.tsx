@@ -111,4 +111,29 @@ describe("App", () => {
     await flushEffects();
     expect(lastFrame() ?? "").toContain("model: gpt-4.1");
   });
+
+  it("falls back to '(server default)' when the session model is unknown", async () => {
+    const { session } = makeFakeSession();
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const { lastFrame } = render(
+      <App session={session} runStore={store} credentials={credentials} />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("(server default)");
+  });
+
+  it("header updates when setModel is called via onModelChange", async () => {
+    const { session } = makeFakeSession({ initialModel: "a" });
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const { lastFrame } = render(
+      <App session={session} runStore={store} credentials={credentials} />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("model: a");
+    await session.setModel("b");
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("model: b");
+  });
 });
