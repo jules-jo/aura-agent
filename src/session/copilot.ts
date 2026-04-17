@@ -51,6 +51,7 @@ export interface StartSessionOptions {
 }
 
 const DEFAULT_IDLE_TIMEOUT_MS = 600_000;
+const PREFERRED_DEFAULT_MODEL = "claude-opus-4.6";
 
 export async function startSession(options: StartSessionOptions = {}): Promise<AuraSession> {
   const client = new CopilotClient({ logLevel: options.logLevel ?? "none" });
@@ -62,7 +63,8 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
   if (!resolvedModel) {
     try {
       const models = await client.listModels();
-      resolvedModel = models[0]?.id;
+      resolvedModel = models.find((model) => model.id === PREFERRED_DEFAULT_MODEL)?.id
+        ?? models[0]?.id;
     } catch {
       // Auth or transport error -- fall through and let the SDK pick; header
       // will simply omit the model indicator until the user runs /model.
@@ -147,4 +149,3 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
     },
   };
 }
-
