@@ -39,7 +39,17 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
   const [error, setError] = useState<string | undefined>(undefined);
   const [currentModel, setCurrentModel] = useState<string | undefined>(() => session.getModel());
   const [availableModels, setAvailableModels] = useState<AuraModelInfo[] | null>(null);
+  const [thinkingTick, setThinkingTick] = useState(0);
   const nextId = useRef(0);
+
+  useEffect(() => {
+    if (status !== "thinking") return;
+    setThinkingTick(0);
+    const timer = setInterval(() => {
+      setThinkingTick((t) => t + 1);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [status]);
 
   const makeId = (): string => {
     const id = `m${nextId.current}`;
@@ -63,7 +73,9 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
       if (event.kind === "final") {
         setMessages((prev) => [...prev, { id: makeId(), role: "assistant", text: event.text }]);
         setPending("");
-        setStatus("idle");
+        // Do NOT flip to idle here. A single turn can emit multiple final
+        // messages interleaved with tool calls; the indicator must stay
+        // visible until session.send() resolves (see handleSubmit).
         return;
       }
       if (event.kind === "error") {
@@ -133,7 +145,9 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
         return;
       }
       setStatus("thinking");
-      void session.send(text);
+      void session.send(text).then(() => {
+        setStatus((prev) => (prev === "error" ? prev : "idle"));
+      });
     },
     [handleModelCommand, session],
   );
@@ -149,7 +163,13 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
       </Box>
       <Box flexDirection="row">
         <Box flexDirection="column" width="60%">
-          <ChatPane messages={messages} pending={pending} status={status} error={error} />
+          <ChatPane
+            messages={messages}
+            pending={pending}
+            status={status}
+            error={error}
+            thinkingTick={thinkingTick}
+          />
         </Box>
         <Box flexDirection="column" width="40%">
           <RunPane store={runStore} />

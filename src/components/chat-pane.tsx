@@ -14,6 +14,7 @@ type Props = {
   pending: string;
   status: "idle" | "thinking" | "error";
   error?: string | undefined;
+  thinkingTick?: number;
 };
 
 const ROLE_LABEL: Record<ChatRole, string> = {
@@ -28,7 +29,15 @@ const ROLE_COLOR: Record<ChatRole, string> = {
   system: "gray",
 };
 
-export function ChatPane({ messages, pending, status, error }: Props): React.ReactElement {
+export function ChatPane({
+  messages,
+  pending,
+  status,
+  error,
+  thinkingTick = 0,
+}: Props): React.ReactElement {
+  const dots = ".".repeat((thinkingTick % 3) + 1);
+  const elapsedSeconds = Math.floor((thinkingTick * 500) / 1000);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} flexGrow={1}>
       <Box>
@@ -55,7 +64,13 @@ export function ChatPane({ messages, pending, status, error }: Props): React.Rea
       ) : null}
       {status === "thinking" && !pending ? (
         <Box marginTop={1}>
-          <Text color="gray">thinking...</Text>
+          <Text color="yellow">thinking{dots}</Text>
+          {elapsedSeconds >= 2 ? <Text color="gray"> ({elapsedSeconds}s)</Text> : null}
+        </Box>
+      ) : null}
+      {status === "thinking" && pending ? (
+        <Box>
+          <Text color="yellow">{dots}</Text>
         </Box>
       ) : null}
       {status === "error" && error ? (

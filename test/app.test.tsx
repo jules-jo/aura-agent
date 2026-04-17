@@ -16,6 +16,8 @@ async function flushEffects(): Promise<void> {
 interface FakeSessionOptions {
   models?: AuraModelInfo[];
   initialModel?: string;
+  /** If set, send() returns a promise that stays pending until resolve is called. */
+  manualSendCompletion?: boolean;
 }
 
 function makeFakeSession(options: FakeSessionOptions = {}): {
@@ -23,15 +25,22 @@ function makeFakeSession(options: FakeSessionOptions = {}): {
   emit: (event: AssistantEvent) => void;
   sentPrompts: string[];
   modelHistory: string[];
+  completeNextSend: () => void;
 } {
   const listeners = new Set<(event: AssistantEvent) => void>();
   const modelListeners = new Set<(id: string) => void>();
   const sentPrompts: string[] = [];
   const modelHistory: string[] = [];
+  const pendingResolvers: Array<() => void> = [];
   let currentModel = options.initialModel;
   const session: AuraSession = {
     send: async (prompt: string) => {
       sentPrompts.push(prompt);
+      if (options.manualSendCompletion) {
+        await new Promise<void>((resolve) => {
+          pendingResolvers.push(resolve);
+        });
+      }
     },
     subscribe: (listener) => {
       listeners.add(listener);
@@ -58,6 +67,10 @@ function makeFakeSession(options: FakeSessionOptions = {}): {
     emit: (event) => listeners.forEach((l) => l(event)),
     sentPrompts,
     modelHistory,
+    completeNextSend: () => {
+      const next = pendingResolvers.shift();
+      if (next) next();
+    },
   };
 }
 
@@ -127,6 +140,37 @@ describe("App", () => {
     );
     await flushEffects();
     expect(lastFrame() ?? "").toContain("(server default)");
+  });
+
+  it("keeps the thinking indicator visible after a final message when send() is still in flight", async () => {
+    const { session, emit, completeNextSend } = makeFakeSession({ manualSendCompletion: true });
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const { lastFrame, stdin } = render(
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
+    );
+    await flushEffects();
+    // Simulate the user submitting a prompt.
+    stdin.write("hi");
+    await flushEffects();
+    stdin.write("\r");
+    await flushEffects();
+    expect(lastFrame() ?? "").toMatch(/thinking/);
+    // First intermediate final (between tool calls).
+    emit({ kind: "final", text: "let me check that" });
+    await flushEffects();
+    // The final text appeared but thinking indicator must still be visible
+    // because send() has not resolved yet.
+    const mid = lastFrame() ?? "";
+    expect(mid).toContain("let me check that");
+    expect(mid).toMatch(/thinking/);
+    // Resolve send(); now the indicator should disappear.
+    completeNextSend();
+    await flushEffects();
+    const after = lastFrame() ?? "";
+    expect(after).toContain("let me check that");
+    expect(after).not.toMatch(/thinking/);
   });
 
   it("header updates when setModel is called via onModelChange", async () => {
