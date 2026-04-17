@@ -90,40 +90,26 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         return { error: "user_declined", host: args.host, command: args.command };
       }
       const credentialId = args.credential_id ?? `${args.username}@${args.host}`;
-      let password: string | undefined;
-      if (options.useAgentAuth) {
-        password = undefined;
-      } else {
-        password = await options.credentials.request({
-          credentialId,
+      const connectResult = await connectWithAuthRetry({
+        sshClient: options.sshClient,
+        credentials: options.credentials,
+        useAgentAuth: options.useAgentAuth === true,
+        ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
+        host: args.host,
+        port: args.port ?? DEFAULT_PORT,
+        username: args.username,
+        credentialId,
+      });
+      if ("error" in connectResult) {
+        return {
+          error: connectResult.error,
+          message: connectResult.message,
           host: args.host,
           username: args.username,
-        });
+          command: args.command,
+        };
       }
-      const connectOnce = (pw: string | undefined): Promise<SshSession> =>
-        options.sshClient.connect({
-          host: args.host,
-          port: args.port ?? DEFAULT_PORT,
-          username: args.username,
-          ...(pw !== undefined ? { password: pw } : {}),
-          ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
-        });
-      let session: SshSession;
-      try {
-        session = await connectOnce(password);
-      } catch (err: unknown) {
-        if (password === undefined && isAuthError(err)) {
-          options.credentials.forget(credentialId);
-          password = await options.credentials.request({
-            credentialId,
-            host: args.host,
-            username: args.username,
-          });
-          session = await connectOnce(password);
-        } else {
-          throw err;
-        }
-      }
+      const session = connectResult.session;
       const run = store.createRun({
         command: args.command,
         cwd: args.cwd ?? `${args.username}@${args.host}`,
@@ -261,38 +247,24 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         return { run_id: args.run_id, error: "already_attached" };
       }
       const credentialId = record.credentialId ?? `${record.username}@${record.host}`;
-      let password: string | undefined;
-      if (!options.useAgentAuth) {
-        password = await options.credentials.request({
-          credentialId,
-          host: record.host,
-          username: record.username,
-        });
+      const connectResult = await connectWithAuthRetry({
+        sshClient: options.sshClient,
+        credentials: options.credentials,
+        useAgentAuth: options.useAgentAuth === true,
+        ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
+        host: record.host,
+        port: record.port,
+        username: record.username,
+        credentialId,
+      });
+      if ("error" in connectResult) {
+        return {
+          run_id: record.runId,
+          error: connectResult.error,
+          message: connectResult.message,
+        };
       }
-      const connectOnce = (pw: string | undefined): Promise<SshSession> =>
-        options.sshClient.connect({
-          host: record.host,
-          port: record.port,
-          username: record.username,
-          ...(pw !== undefined ? { password: pw } : {}),
-          ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
-        });
-      let session: SshSession;
-      try {
-        session = await connectOnce(password);
-      } catch (err: unknown) {
-        if (password === undefined && isAuthError(err)) {
-          options.credentials.forget(credentialId);
-          password = await options.credentials.request({
-            credentialId,
-            host: record.host,
-            username: record.username,
-          });
-          session = await connectOnce(password);
-        } else {
-          throw err;
-        }
-      }
+      const session = connectResult.session;
       store.adoptRun({
         id: record.runId,
         command: record.command,
@@ -478,4 +450,68 @@ function delay(ms: number): Promise<void> {
 function isAuthError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return /auth|permission denied|access denied/i.test(message);
+}
+
+interface ConnectWithAuthRetryArgs {
+  sshClient: SshClient;
+  credentials: CredentialStore;
+  useAgentAuth: boolean;
+  readyTimeoutMs?: number;
+  host: string;
+  port: number;
+  username: string;
+  credentialId: string;
+}
+
+type ConnectResult =
+  | { session: SshSession }
+  | { error: "auth_failed" | "connect_failed"; message: string };
+
+async function connectWithAuthRetry(args: ConnectWithAuthRetryArgs): Promise<ConnectResult> {
+  const connectOnce = (pw: string | undefined): Promise<SshSession> =>
+    args.sshClient.connect({
+      host: args.host,
+      port: args.port,
+      username: args.username,
+      ...(pw !== undefined ? { password: pw } : {}),
+      ...(args.readyTimeoutMs !== undefined ? { readyTimeoutMs: args.readyTimeoutMs } : {}),
+    });
+  let password: string | undefined;
+  if (!args.useAgentAuth) {
+    password = await args.credentials.request({
+      credentialId: args.credentialId,
+      host: args.host,
+      username: args.username,
+    });
+  }
+  try {
+    return { session: await connectOnce(password) };
+  } catch (err: unknown) {
+    if (!isAuthError(err)) {
+      return { error: "connect_failed", message: toErrorMessage(err) };
+    }
+    // Auth failed. Forget the cached credential, re-prompt the user for a
+    // fresh password, and retry once. This catches both "wrong password
+    // cached from a typo" and "agent-auth rejected, fall back to password".
+    args.credentials.forget(args.credentialId);
+    const retryPassword = await args.credentials.request({
+      credentialId: args.credentialId,
+      host: args.host,
+      username: args.username,
+    });
+    try {
+      return { session: await connectOnce(retryPassword) };
+    } catch (retryErr: unknown) {
+      // Second failure: forget again so a future tool call re-prompts cleanly.
+      args.credentials.forget(args.credentialId);
+      const code: "auth_failed" | "connect_failed" = isAuthError(retryErr)
+        ? "auth_failed"
+        : "connect_failed";
+      return { error: code, message: toErrorMessage(retryErr) };
+    }
+  }
+}
+
+function toErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

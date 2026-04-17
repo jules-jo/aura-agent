@@ -25,9 +25,12 @@ const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
   agent / key-based auth (the TUI will use SSH_AUTH_SOCK on POSIX or Pageant
   on Windows). The TUI asks the user to confirm every ssh_dispatch and
   auto-prompts for a password when needed -- never ask the user for a
-  password yourself, just issue the call. If the tool returns
-  error="user_declined", stop and report that the user cancelled; do NOT
-  retry or suggest alternatives.
+  password yourself, just issue the call. If the tool returns any error
+  field (user_declined, auth_failed, connect_failed, dispatch_failed),
+  STOP and report that error to the user in plain language. Do NOT call
+  ssh_dispatch again; the tool already retried once internally on
+  recoverable issues like a mistyped password. Only re-dispatch if the
+  user explicitly asks you to try again.
 - ssh_poll({ run_id, since_iteration, wait_ms: 2000 }) watches progress.
 - ssh_reattach({ run_id }) reconnects to a run whose poll previously
   failed (e.g. because the SSH connection dropped). It re-opens SSH, reads

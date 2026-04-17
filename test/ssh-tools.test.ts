@@ -481,6 +481,128 @@ describe("ssh-run tools", () => {
     expect(inMemory?.status).toBe("completed");
   });
 
+  it("ssh_dispatch forgets the cached password and re-prompts once when auth fails", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "wrong-pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const observedPasswords: (string | undefined)[] = [];
+    let connectAttempts = 0;
+    const innerClient: SshClient = {
+      connect: async (opts) => {
+        connectAttempts += 1;
+        observedPasswords.push(opts.password);
+        if (connectAttempts === 1) {
+          throw new Error("All configured authentication methods failed");
+        }
+        return {
+          exec: async (command) => {
+            if (command.includes("dispatch_ok")) {
+              return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
+            }
+            return {
+              stdout: "STATE=stopped\nEXIT=0\nSIZE=0\n---OUTPUT---\n",
+              stderr: "",
+              exitCode: 0,
+            };
+          },
+          close: async () => {},
+        };
+      },
+    };
+    const tools = sshRunTools(store, {
+      sshClient: innerClient,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 50,
+    });
+    const promise = callHandler<{ run_id?: string; error?: string }>(tools, "ssh_dispatch", {
+      host: "h.example",
+      username: "root",
+      command: "uname -a",
+    });
+    for (let i = 0; i < 100; i += 1) {
+      if (credentials.getPending().length > 0) break;
+      await new Promise((r) => setImmediate(r));
+    }
+    expect(credentials.getPending().length).toBe(1);
+    credentials.resolveNext("correct-pw");
+    const result = await promise;
+    expect(result.error).toBeUndefined();
+    expect(result.run_id).toBeDefined();
+    expect(connectAttempts).toBe(2);
+    expect(observedPasswords).toEqual(["wrong-pw", "correct-pw"]);
+    for (let i = 0; i < 100; i += 1) {
+      if (store.get(result.run_id as string)?.status === "completed") break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  });
+
+  it("ssh_dispatch returns auth_failed (no throw) when both auth attempts fail", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "wrong-pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    let connectAttempts = 0;
+    const innerClient: SshClient = {
+      connect: async () => {
+        connectAttempts += 1;
+        throw new Error("All configured authentication methods failed");
+      },
+    };
+    const tools = sshRunTools(store, {
+      sshClient: innerClient,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 50,
+    });
+    const promise = callHandler<{ error?: string; run_id?: string; message?: string }>(
+      tools,
+      "ssh_dispatch",
+      { host: "h.example", username: "root", command: "uname -a" },
+    );
+    for (let i = 0; i < 100; i += 1) {
+      if (credentials.getPending().length > 0) break;
+      await new Promise((r) => setImmediate(r));
+    }
+    credentials.resolveNext("still-wrong");
+    const result = await promise;
+    expect(result.error).toBe("auth_failed");
+    expect(result.run_id).toBeUndefined();
+    expect(connectAttempts).toBe(2);
+    // Credential should be forgotten so a future call re-prompts cleanly.
+    expect(credentials.getPending().length).toBe(0);
+  });
+
+  it("ssh_dispatch returns connect_failed (no throw) on a non-auth connection error", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const innerClient: SshClient = {
+      connect: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+    };
+    const tools = sshRunTools(store, {
+      sshClient: innerClient,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 50,
+    });
+    const result = await callHandler<{ error?: string; message?: string; run_id?: string }>(
+      tools,
+      "ssh_dispatch",
+      { host: "h.example", username: "root", command: "uname -a" },
+    );
+    expect(result.error).toBe("connect_failed");
+    expect(result.run_id).toBeUndefined();
+    expect(result.message).toContain("ECONNREFUSED");
+  });
+
   it("ssh_reattach retries the tail when STATE=stopped but EXIT is not yet visible, and reports completed on the subsequent read", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();
