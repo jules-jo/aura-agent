@@ -19,17 +19,21 @@ there is something worth saying. For non-run questions, respond normally
 without calling tools.`;
 
 const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
-- ssh_dispatch({ host, username, credential_id, command, cwd?, env? }) starts a
-  remote command and returns a run_id. If the credential is unknown the TUI
-  prompts the user for the password before the call resolves, so never ask
-  the user for a password yourself -- just issue the call.
+- ssh_dispatch({ host, username, command, credential_id?, cwd?, env? }) starts
+  a remote command and returns a run_id. credential_id is optional -- include
+  it only when the target uses password auth. Omit it for hosts that use SSH
+  agent / key-based auth (the TUI will use SSH_AUTH_SOCK on POSIX or Pageant
+  on Windows). When credential_id is present and the password is not yet
+  cached, the TUI prompts the user for it before the call resolves -- never
+  ask the user for a password yourself, just issue the call.
 - ssh_poll({ run_id, since_iteration, wait_ms: 2000 }) watches progress.
 - ssh_kill({ run_id, signal? }) terminates a run. Use signal "KILL" only
   after a "TERM" did not stop the process.
 
 Use ssh_* tools only when the user specifies a remote host (host+username).
 Use local_* tools otherwise. If a required field is missing, ask a single
-concise question before dispatching.`;
+concise question before dispatching. Do not ask about credential_id unless
+the user volunteers it or a previous ssh_dispatch failed with an auth error.`;
 
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",

@@ -145,6 +145,46 @@ describe("ssh-run tools", () => {
     expect(store.get(result.run_id)?.status).toBe("failed");
   });
 
+  it("ssh_dispatch connects without a password when credential_id is omitted", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const runStateStore = new RunStateStore({ dataDir });
+    let connectArgs: { password?: string } | null = null;
+    const { client } = makeFakeClient(async (command) => {
+      if (command.includes("dispatch_ok")) {
+        return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
+      }
+      return {
+        stdout: "STATE=running\nSIZE=0\n---OUTPUT---\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const spyingClient: typeof client = {
+      connect: async (opts) => {
+        connectArgs = opts;
+        return client.connect(opts);
+      },
+    };
+    const tools = sshRunTools(store, {
+      sshClient: spyingClient,
+      credentials,
+      runStateStore,
+      pollIntervalMs: 50,
+    });
+    const result = await callHandler<{ run_id: string }>(tools, "ssh_dispatch", {
+      host: "h",
+      username: "u",
+      command: "whoami",
+    });
+    expect(result.run_id).toBeDefined();
+    expect(connectArgs).not.toBeNull();
+    expect((connectArgs as unknown as { password?: string }).password).toBeUndefined();
+    expect(credentials.getPending().length).toBe(0);
+    const persisted = await runStateStore.read(result.run_id);
+    expect(persisted?.credentialId).toBeUndefined();
+  });
+
   it("ssh_dispatch requests the password from the credential store when missing", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();

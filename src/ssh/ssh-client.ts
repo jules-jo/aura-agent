@@ -4,7 +4,8 @@ export interface SshConnectOpts {
   host: string;
   port?: number;
   username: string;
-  password: string;
+  password?: string;
+  agent?: string;
   readyTimeoutMs?: number;
 }
 
@@ -47,14 +48,22 @@ function connectWithSsh2(opts: SshConnectOpts): Promise<SshSession> {
     };
     client.once("ready", onReady);
     client.once("error", onError);
+    const resolvedAgent = opts.agent ?? defaultAgent();
     client.connect({
       host: opts.host,
       port: opts.port ?? 22,
       username: opts.username,
-      password: opts.password,
+      ...(opts.password !== undefined ? { password: opts.password } : {}),
+      ...(resolvedAgent ? { agent: resolvedAgent } : {}),
       readyTimeout: opts.readyTimeoutMs ?? 20_000,
     });
   });
+}
+
+function defaultAgent(): string | undefined {
+  if (process.env.SSH_AUTH_SOCK) return process.env.SSH_AUTH_SOCK;
+  if (process.platform === "win32") return "pageant";
+  return undefined;
 }
 
 function wrapClient(client: Client): SshSession {

@@ -7,7 +7,7 @@ export interface RunStateRecord {
   host: string;
   port: number;
   username: string;
-  credentialId: string;
+  credentialId?: string;
   command: string;
   cwd?: string;
   remoteBase: string;

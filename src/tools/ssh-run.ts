@@ -22,7 +22,10 @@ const dispatchSchema = z.object({
   credential_id: z
     .string()
     .min(1)
-    .describe("Credential identifier. Looked up from the in-memory credential store."),
+    .optional()
+    .describe(
+      "Optional credential identifier. If provided, the TUI prompts for a password when it is not yet cached. Omit this field to connect without a password (SSH agent / key-based auth).",
+    ),
   command: z.string().min(1).describe("Remote shell command to run."),
   port: z.number().int().positive().max(65535).optional(),
   cwd: z.string().optional().describe("Working directory on the remote host."),
@@ -65,16 +68,18 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       "Start a command on a remote host over SSH. Returns a run_id. The remote process keeps running even if the SSH connection drops; poll with ssh_poll and terminate with ssh_kill.",
     parameters: dispatchSchema,
     handler: async (args) => {
-      const password = await options.credentials.request({
-        credentialId: args.credential_id,
-        host: args.host,
-        username: args.username,
-      });
+      const password = args.credential_id
+        ? await options.credentials.request({
+            credentialId: args.credential_id,
+            host: args.host,
+            username: args.username,
+          })
+        : undefined;
       const session = await options.sshClient.connect({
         host: args.host,
         port: args.port ?? DEFAULT_PORT,
         username: args.username,
-        password,
+        ...(password !== undefined ? { password } : {}),
         ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
       });
       const run = store.createRun({
@@ -89,7 +94,7 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         host: args.host,
         port: args.port ?? DEFAULT_PORT,
         username: args.username,
-        credentialId: args.credential_id,
+        ...(args.credential_id !== undefined ? { credentialId: args.credential_id } : {}),
         command: args.command,
         ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
         remoteBase,
