@@ -41,6 +41,27 @@ describe("CredentialStore", () => {
     await expect(promise).rejects.toThrow("cancelled");
   });
 
+  it("calling request.resolve directly clears the entry from pending", async () => {
+    const store = new CredentialStore();
+    const promise = store.request({ credentialId: "dev", host: "h", username: "u" });
+    expect(store.getPending().length).toBe(1);
+    const first = store.getPending()[0];
+    if (!first) throw new Error("no pending entry");
+    first.resolve("typed-pw");
+    await expect(promise).resolves.toBe("typed-pw");
+    expect(store.getPending().length).toBe(0);
+  });
+
+  it("calling request.reject directly clears the entry from pending", async () => {
+    const store = new CredentialStore();
+    const promise = store.request({ credentialId: "dev", host: "h", username: "u" });
+    const first = store.getPending()[0];
+    if (!first) throw new Error("no pending entry");
+    first.reject(new Error("user escape"));
+    await expect(promise).rejects.toThrow("user escape");
+    expect(store.getPending().length).toBe(0);
+  });
+
   it("subscribe notifies with a stable snapshot reference between mutations", () => {
     const store = new CredentialStore();
     const seen: readonly (readonly unknown[])[] = [];

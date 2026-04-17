@@ -45,34 +45,44 @@ export class CredentialStore {
     const cached = this.passwords.get(req.credentialId);
     if (cached !== undefined) return cached;
     return new Promise<string>((resolve, reject) => {
-      this.pending.push({
+      const entry: PendingPrompt = {
         credentialId: req.credentialId,
         host: req.host,
         username: req.username,
         resolve: (password) => {
+          this.remove(entry);
           this.passwords.set(req.credentialId, password);
           resolve(password);
         },
-        reject,
-      });
+        reject: (err) => {
+          this.remove(entry);
+          reject(err);
+        },
+      };
+      this.pending.push(entry);
       this.commit();
     });
   }
 
   resolveNext(password: string): boolean {
-    const next = this.pending.shift();
+    const next = this.pending[0];
     if (!next) return false;
     next.resolve(password);
-    this.commit();
     return true;
   }
 
   rejectNext(reason: string): boolean {
-    const next = this.pending.shift();
+    const next = this.pending[0];
     if (!next) return false;
     next.reject(new Error(reason));
-    this.commit();
     return true;
+  }
+
+  private remove(entry: PendingPrompt): void {
+    const idx = this.pending.indexOf(entry);
+    if (idx === -1) return;
+    this.pending.splice(idx, 1);
+    this.commit();
   }
 
   private commit(): void {
