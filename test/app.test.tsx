@@ -2,7 +2,7 @@ import React from "react";
 import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "../src/app.js";
-import type { AuraSession, AssistantEvent } from "../src/session/copilot.js";
+import type { AuraSession, AssistantEvent, AuraModelInfo } from "../src/session/copilot.js";
 import { RunStore } from "../src/runs/run-store.js";
 import { CredentialStore } from "../src/ssh/credential-store.js";
 
@@ -12,13 +12,22 @@ async function flushEffects(): Promise<void> {
   }
 }
 
-function makeFakeSession(): {
+interface FakeSessionOptions {
+  models?: AuraModelInfo[];
+  initialModel?: string;
+}
+
+function makeFakeSession(options: FakeSessionOptions = {}): {
   session: AuraSession;
   emit: (event: AssistantEvent) => void;
   sentPrompts: string[];
+  modelHistory: string[];
 } {
   const listeners = new Set<(event: AssistantEvent) => void>();
+  const modelListeners = new Set<(id: string) => void>();
   const sentPrompts: string[] = [];
+  const modelHistory: string[] = [];
+  let currentModel = options.initialModel;
   const session: AuraSession = {
     send: async (prompt: string) => {
       sentPrompts.push(prompt);
@@ -29,12 +38,25 @@ function makeFakeSession(): {
     },
     close: async () => {
       listeners.clear();
+      modelListeners.clear();
+    },
+    listModels: async () => options.models ?? [],
+    getModel: () => currentModel,
+    setModel: async (id: string) => {
+      currentModel = id;
+      modelHistory.push(id);
+      for (const l of modelListeners) l(id);
+    },
+    onModelChange: (listener) => {
+      modelListeners.add(listener);
+      return () => modelListeners.delete(listener);
     },
   };
   return {
     session,
     emit: (event) => listeners.forEach((l) => l(event)),
     sentPrompts,
+    modelHistory,
   };
 }
 
@@ -77,5 +99,16 @@ describe("App", () => {
     emit({ kind: "delta", text: "response" });
     await flushEffects();
     expect(lastFrame() ?? "").toContain("partial response");
+  });
+
+  it("shows the active model in the header", async () => {
+    const { session } = makeFakeSession({ initialModel: "gpt-4.1" });
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const { lastFrame } = render(
+      <App session={session} runStore={store} credentials={credentials} />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("model: gpt-4.1");
   });
 });

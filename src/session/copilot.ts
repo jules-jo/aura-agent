@@ -1,6 +1,7 @@
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import type {
   CopilotClientOptions,
+  ModelInfo,
   PermissionHandler,
   SessionEvent,
   SystemMessageConfig,
@@ -24,10 +25,19 @@ export interface AssistantError {
 
 export type AssistantEvent = AssistantDelta | AssistantFinal | AssistantError;
 
+export interface AuraModelInfo {
+  id: string;
+  name: string;
+}
+
 export interface AuraSession {
   send: (prompt: string) => Promise<void>;
   subscribe: (listener: (event: AssistantEvent) => void) => () => void;
   close: () => Promise<void>;
+  listModels: () => Promise<AuraModelInfo[]>;
+  getModel: () => string | undefined;
+  setModel: (id: string) => Promise<void>;
+  onModelChange: (listener: (id: string) => void) => () => void;
 }
 
 export interface StartSessionOptions {
@@ -38,16 +48,19 @@ export interface StartSessionOptions {
   onPermissionRequest?: PermissionHandler;
 }
 
-const DEFAULT_MODEL = "gpt-4.1";
-
 export async function startSession(options: StartSessionOptions = {}): Promise<AuraSession> {
   const client = new CopilotClient({ logLevel: options.logLevel ?? "none" });
   const session = await client.createSession({
-    model: options.model ?? DEFAULT_MODEL,
     onPermissionRequest: options.onPermissionRequest ?? approveAll,
+    ...(options.model ? { model: options.model } : {}),
     ...(options.tools ? { tools: options.tools } : {}),
     ...(options.systemMessage ? { systemMessage: options.systemMessage } : {}),
   });
+  let currentModel: string | undefined = options.model;
+  const modelListeners = new Set<(id: string) => void>();
+  const notifyModel = (id: string): void => {
+    for (const l of modelListeners) l(id);
+  };
 
   const listeners = new Set<(event: AssistantEvent) => void>();
   const emit = (event: AssistantEvent): void => {
@@ -80,9 +93,28 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
         listeners.delete(listener);
       };
     },
+    async listModels(): Promise<AuraModelInfo[]> {
+      const models: ModelInfo[] = await client.listModels();
+      return models.map((m) => ({ id: m.id, name: m.name }));
+    },
+    getModel(): string | undefined {
+      return currentModel;
+    },
+    async setModel(id: string): Promise<void> {
+      await session.setModel(id);
+      currentModel = id;
+      notifyModel(id);
+    },
+    onModelChange(listener) {
+      modelListeners.add(listener);
+      return () => {
+        modelListeners.delete(listener);
+      };
+    },
     async close(): Promise<void> {
       unsubscribeAll();
       listeners.clear();
+      modelListeners.clear();
       try {
         await session.disconnect();
       } catch {

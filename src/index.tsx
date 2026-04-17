@@ -24,6 +24,7 @@ async function main(): Promise<void> {
     logLevel: "none",
     tools,
     systemMessage: phase2SystemMessage,
+    ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
   });
   const { waitUntilExit } = render(
     <App session={session} runStore={runStore} credentials={credentials} />,
