@@ -9,6 +9,7 @@ const mockState = vi.hoisted(() => ({
   models: [] as MockModelInfo[],
   createSessionCalls: [] as Array<Record<string, unknown>>,
   currentModelFromRpc: undefined as string | undefined,
+  setModelCalls: [] as string[],
 }));
 
 vi.mock("@github/copilot-sdk", () => {
@@ -27,7 +28,7 @@ vi.mock("@github/copilot-sdk", () => {
       // no-op
     }
 
-    async setModel(): Promise<void> {
+    async setModel(_model?: string): Promise<void> {
       // no-op
     }
 
@@ -45,7 +46,12 @@ vi.mock("@github/copilot-sdk", () => {
 
       async createSession(config: Record<string, unknown>): Promise<MockSession> {
         mockState.createSessionCalls.push(config);
-        return new MockSession();
+        const session = new MockSession();
+        session.setModel = async (model: string) => {
+          mockState.setModelCalls.push(model);
+          mockState.currentModelFromRpc = model;
+        };
+        return session;
       }
 
       async stop(): Promise<void> {
@@ -62,12 +68,14 @@ describe("startSession model selection", () => {
     mockState.models = [];
     mockState.createSessionCalls = [];
     mockState.currentModelFromRpc = undefined;
+    mockState.setModelCalls = [];
   });
 
   afterEach(() => {
     mockState.models = [];
     mockState.createSessionCalls = [];
     mockState.currentModelFromRpc = undefined;
+    mockState.setModelCalls = [];
   });
 
   it("prefers claude-opus-4.6 when no explicit model is provided", async () => {
@@ -79,6 +87,7 @@ describe("startSession model selection", () => {
     const session = await startSession();
 
     expect(mockState.createSessionCalls[0]?.model).toBe("claude-opus-4.6");
+    expect(mockState.setModelCalls).toEqual(["claude-opus-4.6"]);
     expect(session.getModel()).toBe("claude-opus-4.6");
     await session.close();
   });
@@ -92,6 +101,7 @@ describe("startSession model selection", () => {
     const session = await startSession();
 
     expect(mockState.createSessionCalls[0]?.model).toBe("anthropic/claude-opus-4-6");
+    expect(mockState.setModelCalls).toEqual(["anthropic/claude-opus-4-6"]);
     expect(session.getModel()).toBe("anthropic/claude-opus-4-6");
     await session.close();
   });
@@ -105,6 +115,7 @@ describe("startSession model selection", () => {
     const session = await startSession();
 
     expect(mockState.createSessionCalls[0]?.model).toBe("gpt-4.1");
+    expect(mockState.setModelCalls).toEqual(["gpt-4.1"]);
     expect(session.getModel()).toBe("gpt-4.1");
     await session.close();
   });
@@ -118,6 +129,7 @@ describe("startSession model selection", () => {
     const session = await startSession({ model: "claude-sonnet-4" });
 
     expect(mockState.createSessionCalls[0]?.model).toBe("claude-sonnet-4");
+    expect(mockState.setModelCalls).toEqual(["claude-sonnet-4"]);
     expect(session.getModel()).toBe("claude-sonnet-4");
     await session.close();
   });
@@ -129,6 +141,7 @@ describe("startSession model selection", () => {
     const session = await startSession();
 
     expect(mockState.createSessionCalls[0]?.model).toBeUndefined();
+    expect(mockState.setModelCalls).toEqual([]);
     expect(session.getModel()).toBe("gpt-5.4");
     await session.close();
   });

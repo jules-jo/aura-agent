@@ -76,6 +76,15 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
     ...(options.systemMessage ? { systemMessage: options.systemMessage } : {}),
   });
   let currentModel: string | undefined = resolvedModel;
+  if (resolvedModel) {
+    try {
+      await session.setModel(resolvedModel);
+      currentModel = resolvedModel;
+    } catch {
+      // Best effort only. Some providers may reject the startup switch even
+      // though createSession accepted the model hint.
+    }
+  }
   try {
     currentModel = (await session.rpc.model.getCurrent()).modelId ?? currentModel;
   } catch {
