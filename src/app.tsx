@@ -1,19 +1,28 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Box, Text } from "ink";
 import { ChatPane, type ChatMessage } from "./components/chat-pane.js";
 import { RunPane } from "./components/run-pane.js";
 import { PromptInput } from "./components/prompt-input.js";
+import { PasswordPrompt } from "./components/password-prompt.js";
 import type { AuraSession } from "./session/copilot.js";
 import type { RunStore } from "./runs/run-store.js";
+import type { CredentialStore, PendingPrompt } from "./ssh/credential-store.js";
 
 interface Props {
   session: AuraSession;
   runStore: RunStore;
+  credentials: CredentialStore;
 }
 
 type Status = "idle" | "thinking" | "error";
 
-export function App({ session, runStore }: Props): React.ReactElement {
+export function App({ session, runStore, credentials }: Props): React.ReactElement {
+  const pendingPrompts = useSyncExternalStore<readonly PendingPrompt[]>(
+    credentials.subscribe,
+    credentials.getPending,
+    credentials.getPending,
+  );
+  const activePrompt = pendingPrompts[0];
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState("");
@@ -78,12 +87,16 @@ export function App({ session, runStore }: Props): React.ReactElement {
           <RunPane store={runStore} />
         </Box>
       </Box>
-      <PromptInput
-        value={draft}
-        onChange={setDraft}
-        onSubmit={handleSubmit}
-        disabled={status === "thinking"}
-      />
+      {activePrompt ? (
+        <PasswordPrompt request={activePrompt} />
+      ) : (
+        <PromptInput
+          value={draft}
+          onChange={setDraft}
+          onSubmit={handleSubmit}
+          disabled={status === "thinking"}
+        />
+      )}
     </Box>
   );
 }

@@ -19,13 +19,16 @@
   },
   "dependencies": {
     "@github/copilot-sdk": "^0.1.8",
+    "env-paths": "^4.0.0",
     "ink": "^5.0.0",
     "react": "^18.3.0",
+    "ssh2": "^1.17.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.0",
+    "@types/ssh2": "^1.15.5",
     "ink-testing-library": "^4.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",

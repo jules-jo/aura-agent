@@ -1,5 +1,44 @@
 # Wiki Log
 
+## [2026-04-17] build | P2 SSH execution landed
+Added the SSH dispatch/poll/kill loop. Three new SDK-registered tools
+(`ssh_dispatch`, `ssh_poll`, `ssh_kill`) in `src/tools/ssh-run.ts`; they sit
+on top of a tiny `SshClient` abstraction (`src/ssh/ssh-client.ts`, ssh2-backed)
+so tests inject a FakeSshClient without touching the network. Remote-side
+primitives live in `src/ssh/remote-script.ts`: `buildDispatchScript` wraps the
+user command in `mkdir -p <run-dir> && nohup sh -c '<cmd>; echo $? > exit'
+> output.log 2>&1 &` with a PID file, so the remote process outlives a
+dropped SSH connection; `buildTailScript` reads `STATE=running|stopped`,
+`EXIT=<code>`, `SIZE=<bytes>`, and a byte-offset tail of the log, parsed by
+`parsePollOutput` so each poll only pulls new bytes; `buildKillScript`
+defaults to SIGTERM. `shellEscape` does POSIX single-quote escaping with
+`'\\''`-for-apostrophe for safety. A background poller (started inside
+`ssh_dispatch`, not the model) feeds new log bytes into the same `RunStore`
+the local tools use, so the run pane shows remote runs live without any new
+UI. `RunStateStore` (`src/ssh/run-state-store.ts`) writes run metadata as
+JSON under `env-paths('aura').data/runs/<run_id>.json` -- Windows resolves
+to `%APPDATA%\aura\Data\runs\` per the roadmap -- using a temp-file + rename
+atomic-write so a mid-write reader never sees a truncated file. The record
+is the reattach payload P7 will need (host, port, username, credential_id,
+command, cwd, remote log/pid paths, timestamps, status). Credentials go
+through `CredentialStore` (`src/ssh/credential-store.ts`): an in-memory
+password map plus a pending-request queue; when `ssh_dispatch` calls
+`credentials.request(...)` for an unknown credential, a promise sits in the
+queue until the TUI's new `PasswordPrompt` component resolves it. The
+component uses Ink's `useInput` with character masking and shows
+`username@host (credential_id)` so the user always knows what they are
+authenticating. The store snapshot is cached (same stable-reference trick
+the `RunStore` uses for its `useSyncExternalStore` contract) so the prompt
+does not loop. System message extended with Phase-2 instructions
+(`phase2SystemMessage`) covering when to pick `ssh_*` over `local_*` and
+that the TUI -- not the agent -- handles password collection. 25 new
+vitest tests (credential store queueing, atomic run-state persistence,
+script-builder edge cases, FakeSshClient-backed dispatch/poll/kill,
+dispatch-failed path, password-request round-trip) on top of P1's 14 --
+39 total, all green. Typecheck clean under `exactOptionalPropertyTypes`.
+Out of scope for P2 and still deferred: catalog, `age`-encrypted credentials
+file, HITL permission prompts, parsing, reattach flow.
+
 ## [2026-04-17] build | P1 local dispatch loop landed
 Shipped the Phase 1 dispatch/poll pattern. Two SDK-registered tools
 (`local_dispatch`, `local_poll`) defined via `defineTool` + Zod schemas in

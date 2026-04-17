@@ -18,7 +18,25 @@ Do not narrate every poll. Wait for meaningful progress and only speak when
 there is something worth saying. For non-run questions, respond normally
 without calling tools.`;
 
+const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
+- ssh_dispatch({ host, username, credential_id, command, cwd?, env? }) starts a
+  remote command and returns a run_id. If the credential is unknown the TUI
+  prompts the user for the password before the call resolves, so never ask
+  the user for a password yourself -- just issue the call.
+- ssh_poll({ run_id, since_iteration, wait_ms: 2000 }) watches progress.
+- ssh_kill({ run_id, signal? }) terminates a run. Use signal "KILL" only
+  after a "TERM" did not stop the process.
+
+Use ssh_* tools only when the user specifies a remote host (host+username).
+Use local_* tools otherwise. If a required field is missing, ask a single
+concise question before dispatching.`;
+
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",
   content: PHASE_1_INSTRUCTIONS,
+};
+
+export const phase2SystemMessage: SystemMessageConfig = {
+  mode: "append",
+  content: `${PHASE_1_INSTRUCTIONS}\n\n${PHASE_2_EXTRA}`,
 };
