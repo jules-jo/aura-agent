@@ -7,6 +7,7 @@ import type {
   SystemMessageConfig,
   Tool,
 } from "@github/copilot-sdk";
+import { friendlyErrorMessage } from "./error-format.js";
 
 export interface AssistantDelta {
   kind: "delta";
@@ -102,7 +103,7 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
       try {
         await session.sendAndWait({ prompt }, idleTimeoutMs);
       } catch (err: unknown) {
-        emit({ kind: "error", message: toErrorMessage(err) });
+        emit({ kind: "error", message: friendlyErrorMessage(err, currentModel) });
       }
     },
     subscribe(listener) {
@@ -147,7 +148,3 @@ export async function startSession(options: StartSessionOptions = {}): Promise<A
   };
 }
 
-function toErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return typeof err === "string" ? err : "unknown error";
-}
