@@ -29,6 +29,20 @@ describe("remote-script", () => {
     expect(script).toContain("dispatch_ok");
   });
 
+  it("shellEscape leaves ~/path unquoted so the remote shell can expand ~", () => {
+    expect(shellEscape("~/.aura/runs/abc")).toBe("~/.aura/runs/abc");
+  });
+
+  it("buildDispatchScript does not wrap ~ in single quotes (breaks ~ expansion)", () => {
+    const script = buildDispatchScript({
+      runId: "r1",
+      command: "echo hi",
+      remoteBase: "~/.aura/runs",
+    });
+    expect(script).not.toContain("'~/.aura/runs");
+    expect(script).toContain("~/.aura/runs/r1");
+  });
+
   it("buildDispatchScript does not chain '&' with '&&' (bash syntax error)", () => {
     const script = buildDispatchScript({
       runId: "r1",
