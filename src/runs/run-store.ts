@@ -13,29 +13,27 @@ interface InternalRun extends Run {
 
 export class RunStore {
   private readonly runs = new Map<string, InternalRun>();
+  private readonly snapshots = new Map<string, Run>();
   private readonly listeners = new Set<Listener>();
   private activeId: string | null = null;
+  private activeSnapshot: Run | null = null;
 
   getActiveRunId(): string | null {
     return this.activeId;
   }
 
-  getActive(): Run | null {
-    if (!this.activeId) return null;
-    return this.get(this.activeId);
-  }
+  getActive = (): Run | null => this.activeSnapshot;
 
   get(id: string): Run | null {
-    const run = this.runs.get(id);
-    return run ? snapshot(run) : null;
+    return this.snapshots.get(id) ?? null;
   }
 
-  subscribe(listener: Listener): () => void {
+  subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
-  }
+  };
 
   createRun(input: CreateRunInput): Run {
     const id = randomUUID();
@@ -53,8 +51,7 @@ export class RunStore {
     };
     this.runs.set(id, run);
     this.activeId = id;
-    this.notify(run);
-    return snapshot(run);
+    return this.commit(run);
   }
 
   appendLines(id: string, lines: readonly string[]): void {
@@ -73,7 +70,7 @@ export class RunStore {
       run.iterations = [...run.iterations, makeIteration(run.iterations.length, chunk)];
       changed = true;
     }
-    if (changed) this.notify(run);
+    if (changed) this.commit(run);
   }
 
   completeRun(id: string, exitCode: number | null): void {
@@ -86,7 +83,7 @@ export class RunStore {
     run.status = exitCode === 0 ? "completed" : "failed";
     if (exitCode !== null) run.exitCode = exitCode;
     run.completedAt = new Date().toISOString();
-    this.notify(run);
+    this.commit(run);
   }
 
   failRun(id: string, message: string): void {
@@ -95,7 +92,7 @@ export class RunStore {
     run.status = "failed";
     run.error = message;
     run.completedAt = new Date().toISOString();
-    this.notify(run);
+    this.commit(run);
   }
 
   waitForUpdate(id: string, sinceIteration: number, timeoutMs: number): Promise<void> {
@@ -119,9 +116,12 @@ export class RunStore {
     });
   }
 
-  private notify(run: InternalRun): void {
+  private commit(run: InternalRun): Run {
     const snap = snapshot(run);
+    this.snapshots.set(run.id, snap);
+    if (this.activeId === run.id) this.activeSnapshot = snap;
     for (const listener of this.listeners) listener(snap);
+    return snap;
   }
 }
 

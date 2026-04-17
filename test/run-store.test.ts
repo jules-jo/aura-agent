@@ -60,6 +60,20 @@ describe("RunStore", () => {
     expect(store.get(run.id)?.iterations.length).toBe(1);
   });
 
+  it("getActive returns a stable reference between mutations", () => {
+    const store = new RunStore();
+    const run = store.createRun({ command: "x", cwd: "/tmp", iterationSize: 5 });
+    const first = store.getActive();
+    const second = store.getActive();
+    expect(first).toBe(second);
+    store.appendLines(run.id, ["only-one"]);
+    const third = store.getActive();
+    expect(third).toBe(second);
+    store.appendLines(run.id, ["a", "b", "c", "d", "e"]);
+    const fourth = store.getActive();
+    expect(fourth).not.toBe(third);
+  });
+
   it("waitForUpdate resolves on timeout if nothing happens", async () => {
     const store = new RunStore();
     const run = store.createRun({ command: "x", cwd: "/tmp", iterationSize: 10 });

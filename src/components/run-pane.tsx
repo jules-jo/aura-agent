@@ -16,11 +16,7 @@ const STATUS_COLOR: Record<RunStatus, string> = {
 const TAIL_LINES = 8;
 
 export function RunPane({ store }: Props): React.ReactElement {
-  const run = useSyncExternalStore(
-    (onChange) => store.subscribe(() => onChange()),
-    () => store.getActive(),
-    () => store.getActive(),
-  );
+  const run = useSyncExternalStore(store.subscribe, store.getActive, store.getActive);
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="gray" paddingX={1} flexGrow={1}>
