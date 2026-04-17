@@ -19,10 +19,18 @@ export async function readWikiPage(rootDir: string, repoPath: string): Promise<W
 }
 
 export async function listTestPages(rootDir: string): Promise<WikiPage[]> {
-  const testsDir = path.join(rootDir, "pages", "tests");
+  return listWikiPagesInSubdir(rootDir, path.join("pages", "tests"));
+}
+
+export async function listSystemPages(rootDir: string): Promise<WikiPage[]> {
+  return listWikiPagesInSubdir(rootDir, path.join("pages", "systems"));
+}
+
+async function listWikiPagesInSubdir(rootDir: string, subdir: string): Promise<WikiPage[]> {
+  const dir = path.join(rootDir, subdir);
   let entries: string[];
   try {
-    entries = await walkMarkdownFiles(testsDir);
+    entries = await walkMarkdownFiles(dir);
   } catch (err: unknown) {
     if (isNotFound(err)) return [];
     throw err;

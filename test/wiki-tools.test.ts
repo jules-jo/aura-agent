@@ -27,6 +27,7 @@ describe("wiki tools", () => {
   beforeEach(async () => {
     rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "aura-wiki-"));
     await fs.mkdir(path.join(rootDir, "pages", "tests"), { recursive: true });
+    await fs.mkdir(path.join(rootDir, "pages", "systems"), { recursive: true });
   });
 
   afterEach(async () => {
@@ -211,6 +212,235 @@ describe("wiki tools", () => {
     expect(resolved.command).toBe("npx vitest run app.test.tsx");
     expect(resolved.arg_values).toEqual({ pattern: "app.test.tsx" });
     expect(resolved.missing_args).toEqual([]);
+  });
+
+  it("catalog_lookup_test accepts provided_args keyed by arg aliases", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "python-cli.md"),
+      [
+        "---",
+        'name: "Python CLI"',
+        "host: localhost",
+        'command: "python3 x.py -i {{iterations}}"',
+        "args:",
+        '  - name: "iterations"',
+        "    required: true",
+        '    prompt: "What value should I pass to -i?"',
+        "    aliases:",
+        '      - "-i"',
+        '      - "i"',
+        '    description: "Iteration count"',
+        "---",
+        "",
+        "# Python CLI",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const resolved = await callHandler<{
+      ready_to_dispatch: boolean;
+      command: string | null;
+      arg_values: Record<string, string>;
+      args: Array<{ name: string; aliases: string[]; description: string | null }>;
+      missing_args: unknown[];
+    }>(tools, "catalog_lookup_test", {
+      query: "python cli",
+      provided_args: { "-i": "10" },
+    });
+
+    expect(resolved.ready_to_dispatch).toBe(true);
+    expect(resolved.command).toBe("python3 x.py -i 10");
+    expect(resolved.arg_values).toEqual({ iterations: "10" });
+    expect(resolved.args).toEqual([
+      expect.objectContaining({
+        name: "iterations",
+        aliases: ["-i", "i"],
+        description: "Iteration count",
+      }),
+    ]);
+    expect(resolved.missing_args).toEqual([]);
+  });
+
+  it("catalog_lookup_test rejects duplicate arg identifiers across names and aliases", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "broken-args.md"),
+      [
+        "---",
+        'name: "Broken Args"',
+        "host: localhost",
+        'command: "python3 x.py"',
+        "args:",
+        '  - name: "iterations"',
+        '    prompt: "First arg"',
+        "    aliases:",
+        '      - "-i"',
+        '  - name: "input"',
+        '    prompt: "Second arg"',
+        "    aliases:",
+        '      - "-i"',
+        "---",
+        "",
+        "# Broken Args",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const result = await callHandler<{ error?: string; validation_errors?: string[] }>(
+      tools,
+      "catalog_lookup_test",
+      { query: "broken args" },
+    );
+
+    expect(result.error).toBe("invalid_spec");
+    expect(result.validation_errors?.join("\n")).toContain("duplicate arg identifier");
+  });
+
+  it("catalog_lookup_test marks hostless specs as requiring a separate system", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "remote-pytest.md"),
+      [
+        "---",
+        'name: "Remote Pytest"',
+        'cwd: "/srv/app"',
+        'command: "pytest -q"',
+        "---",
+        "",
+        "# Remote Pytest",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const result = await callHandler<{
+      page_path: string;
+      execution_target: string | null;
+      system_required: boolean;
+      command: string | null;
+      ready_to_dispatch: boolean;
+    }>(tools, "catalog_lookup_test", { query: "remote pytest" });
+
+    expect(result.page_path).toBe("pages/tests/remote-pytest.md");
+    expect(result.execution_target).toBeNull();
+    expect(result.system_required).toBe(true);
+    expect(result.command).toBe("pytest -q");
+    expect(result.ready_to_dispatch).toBe(false);
+  });
+
+  it("catalog_lookup_system resolves a named system with port metadata", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "systems", "system-a.md"),
+      [
+        "---",
+        'name: "System A"',
+        "aliases:",
+        "  - runner a",
+        'host: "192.0.2.10"',
+        'username: "root"',
+        "port: 2222",
+        "---",
+        "",
+        "# System A",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const result = await callHandler<{
+      page_path: string;
+      name: string;
+      match_type: string;
+      host: string;
+      username: string;
+      port: number | null;
+      execution_target: string;
+    }>(tools, "catalog_lookup_system", { query: "runner a" });
+
+    expect(result.page_path).toBe("pages/systems/system-a.md");
+    expect(result.name).toBe("System A");
+    expect(result.match_type).toBe("alias");
+    expect(result.host).toBe("192.0.2.10");
+    expect(result.username).toBe("root");
+    expect(result.port).toBe(2222);
+    expect(result.execution_target).toBe("ssh");
+  });
+
+  it("catalog_resolve_run combines a hostless test with a named system", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "remote-pytest.md"),
+      [
+        "---",
+        'name: "Remote Pytest"',
+        'cwd: "/srv/app"',
+        'command: "pytest -q {{target}}"',
+        "args:",
+        '  - name: "target"',
+        "    required: true",
+        '    prompt: "Which pytest file or node id should I run?"',
+        "---",
+        "",
+        "# Remote Pytest",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(rootDir, "pages", "systems", "system-a.md"),
+      [
+        "---",
+        'name: "System A"',
+        'host: "192.0.2.10"',
+        'username: "root"',
+        "port: 2222",
+        "---",
+        "",
+        "# System A",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const missingSystem = await callHandler<{ error?: string; test_page_path?: string }>(
+      tools,
+      "catalog_resolve_run",
+      { test_query: "remote pytest" },
+    );
+    expect(missingSystem.error).toBe("system_required");
+    expect(missingSystem.test_page_path).toBe("pages/tests/remote-pytest.md");
+
+    const resolved = await callHandler<{
+      error?: string;
+      test_page_path: string;
+      system_page_path: string | null;
+      execution_target: string;
+      host: string | null;
+      username: string | null;
+      port: number | null;
+      command: string | null;
+      ready_to_dispatch: boolean;
+      arg_values: Record<string, string>;
+    }>(tools, "catalog_resolve_run", {
+      test_query: "remote pytest",
+      system_query: "system a",
+      provided_args: { target: "tests/test_api.py" },
+    });
+
+    expect(resolved.error).toBeUndefined();
+    expect(resolved.test_page_path).toBe("pages/tests/remote-pytest.md");
+    expect(resolved.system_page_path).toBe("pages/systems/system-a.md");
+    expect(resolved.execution_target).toBe("ssh");
+    expect(resolved.host).toBe("192.0.2.10");
+    expect(resolved.username).toBe("root");
+    expect(resolved.port).toBe(2222);
+    expect(resolved.command).toBe("pytest -q tests/test_api.py");
+    expect(resolved.arg_values).toEqual({ target: "tests/test_api.py" });
+    expect(resolved.ready_to_dispatch).toBe(true);
   });
 
   it("wiki_write creates markdown files and requires overwrite=true to replace", async () => {

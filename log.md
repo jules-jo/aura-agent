@@ -1,5 +1,41 @@
 # Wiki Log
 
+## [2026-04-17] build | P3 split test/system catalog flow
+Refactored the Phase 3 catalog toward the simpler split model: test pages in
+`pages/tests/*.md`, system pages in `pages/systems/*.md`. Added
+`catalog_lookup_system` plus `catalog_resolve_run`, so aura can now resolve
+"run test X in system A" into a final dispatchable spec without baking host
+details into every test page. Kept the system schema intentionally small:
+`name`, `aliases`, `host`, `username`, optional `port`, optional
+`credential_id`. Existing self-contained test pages still work, but hostless
+test pages now report `system_required=true` until paired with a system.
+Added example pages `pages/systems/system-a.md` and
+`pages/tests/remote-pytest.md`, and expanded unit coverage for lookup and
+merged run resolution.
+
+## [2026-04-17] build | P3 spec authoring draft flow
+Added a first spec-authoring helper around command help output. New
+`catalog_draft_test_spec` takes a test name plus `--help`/`-h` output and
+returns a draft markdown page, inferred required args, optional args, and the
+default target path. The draft builder strips the help flag from the probe
+command, infers required options from common help formats, picks up required
+positional args from the usage line, and wires only required inputs into the
+command template so aura can ask for missing values later. The system message
+now teaches aura to check for an existing test first, ask before creating a
+duplicate, probe help locally or over SSH as needed, then draft and write the
+page only after user confirmation.
+
+## [2026-04-17] build | P3 CLI-oriented arg metadata + templates
+Tightened the test-spec arg schema for real CLI-style tests. Args now support
+`aliases` and `description`, duplicate identifiers are rejected across names
+and aliases, and `provided_args` can resolve by alias (for example `-i` can
+populate the canonical `iterations` field). The help-output draft builder now
+prefers descriptive long-flag names over generic placeholders like `I`, carries
+flag aliases into the generated frontmatter, and preserves help text as the arg
+description. Added `pages/design/test-spec-templates.md` with copy-paste
+templates for Python scripts, binary CLIs, required-arg remote tests, and the
+minimal system page shape.
+
 ## [2026-04-17] build | P3 schema + arg resolution + wiki writes
 Expanded the first P3 slice into a more realistic catalog surface. Test specs
 are now validated against a Zod-backed schema when `catalog_lookup_test`

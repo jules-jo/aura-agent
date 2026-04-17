@@ -59,8 +59,15 @@ auto-prompt for a password if the target needs one.`;
 
 const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
 - catalog_lookup_test({ query, provided_args? }) searches pages/tests/*.md by
-  name, alias, or slug and returns the matched page plus dispatch-relevant
-  fields such as command, cwd, host, username, and credential_id.
+  name, alias, or slug and returns the matched test spec. Some test specs are
+  self-contained; others require a separate system selection.
+- catalog_lookup_system({ query }) searches pages/systems/*.md by name, alias,
+  or slug and returns a target system with host, username, optional port, and
+  optional credential_id.
+- catalog_resolve_run({ test_query, system_query?, provided_args? }) combines a
+  named test with an optional named system and returns the final runnable
+  command/cwd/env plus SSH target fields. Prefer this tool when the user says
+  "run test X in system A".
 - wiki_read({ path }) reads any markdown page in the repo wiki and returns its
   frontmatter and body.
 - wiki_write({ path, content, overwrite? }) writes a markdown page into the
@@ -68,24 +75,47 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:
-1. Call catalog_lookup_test first.
-2. If it returns error="ambiguous", ask the user to choose from candidates.
-3. If it returns error="not_found", tell the user no catalog test matched.
-4. If it returns error="invalid_spec", explain the validation error plainly.
-5. If missing_args is non-empty, ask the user for exactly those args using each
-   item's prompt. Then call catalog_lookup_test again with provided_args merged
-   from the user's answers.
-6. If invalid_args is non-empty, explain the invalid value and the allowed
-   choices, then ask again.
-7. Only dispatch when ready_to_dispatch is true.
-8. If execution_target is "local", run the returned command with local_dispatch.
-9. If execution_target is "ssh", run the returned command with ssh_dispatch.
+1. If they mention both a test and a system, call catalog_resolve_run first.
+2. If they mention only a test, call catalog_lookup_test first.
+3. If the test lookup says system_required=true, ask which system they want,
+   then call catalog_resolve_run.
+4. If catalog_resolve_run returns error="system_required", ask which system.
+5. If it returns an ambiguous/not_found/invalid_* error, explain it plainly or
+   ask the user to choose from candidates.
+6. If missing_args is non-empty, ask only for those args using each prompt, then
+   call catalog_resolve_run again with provided_args merged from the answers.
+7. If invalid_args is non-empty, explain the invalid value and allowed choices,
+   then ask again.
+8. Only dispatch when ready_to_dispatch is true.
+9. If execution_target is "local", run the returned command with local_dispatch.
+10. If execution_target is "ssh", run the returned command with ssh_dispatch,
+   passing host, username, port when present, credential_id when present, and
+   cwd/env/command from the resolved spec.
 
-Do not invent missing spec fields. If the matched catalog entry lacks a
-required field listed in required_fields, ask one concise follow-up question.
-If you need the page's free-form notes or another wiki page, call wiki_read
-with the returned page_path. Use wiki_write only when the user explicitly asks
-to add or update wiki content, logs, or test pages.`;
+Do not invent missing spec fields. If you need the page's free-form notes or
+another wiki page, call wiki_read with the returned page path. Use wiki_write
+only when the user explicitly asks to add or update wiki content, logs, or
+test/system pages.
+
+You can also help author new test specs:
+- If the user asks whether aura "knows" a test, or asks to create a spec for
+  a command/script/binary, first call catalog_lookup_test to check whether a
+  matching page already exists.
+- If a matching test already exists, tell the user and ask whether they want a
+  new spec or an update instead of silently creating a duplicate.
+- If no matching test exists, ask whether they want you to create one.
+- To draft a new spec, identify the command to probe and whether it should run
+  locally or on a named system. For remote authoring, resolve the system with
+  catalog_lookup_system and then use ssh_dispatch/ssh_poll. For local
+  authoring, use local_dispatch/local_poll.
+- Prefer probing help with "--help"; if that clearly fails, retry with "-h".
+- After you have the help output, call catalog_draft_test_spec with the test
+  name, probe command, help output, and optional cwd/page_path/aliases.
+- catalog_draft_test_spec returns a markdown draft, inferred required args, and
+  whether the default target path already exists. If path_exists is true, ask
+  the user whether to overwrite or choose a different name/path.
+- Before writing the draft, briefly summarize the inferred required args. Then
+  write the page only after the user agrees, using wiki_write.`;
 
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",
