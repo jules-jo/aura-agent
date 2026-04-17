@@ -30,10 +30,16 @@ const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
 - ssh_kill({ run_id, signal? }) terminates a run. Use signal "KILL" only
   after a "TERM" did not stop the process.
 
-Use ssh_* tools only when the user specifies a remote host (host+username).
-Use local_* tools otherwise. If a required field is missing, ask a single
-concise question before dispatching. Do not ask about credential_id unless
-the user volunteers it or a previous ssh_dispatch failed with an auth error.`;
+ROUTING RULE (strict): if the user says "ssh into", "on <host>", mentions a
+user@host, or otherwise references a remote target, you MUST use ssh_dispatch.
+NEVER invoke local_dispatch with an "ssh ..." command -- the local shell has
+no TTY and cannot prompt for a password, so password auth will silently fail.
+Use local_* tools only for commands meant to run on the user's own machine.
+
+If a required ssh_dispatch field is missing, ask a single concise question
+before dispatching. Do not ask about credential_id unless the user volunteers
+it or a previous ssh_dispatch failed with an auth error -- the TUI will
+auto-prompt for a password if the target needs one.`;
 
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",

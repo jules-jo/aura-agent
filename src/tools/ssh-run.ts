@@ -277,5 +277,5 @@ function delay(ms: number): Promise<void> {
 
 function isAuthError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  return /authentication|all configured authentication methods failed|auth/i.test(message);
+  return /auth|permission denied|access denied/i.test(message);
 }
