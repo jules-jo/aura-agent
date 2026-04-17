@@ -68,20 +68,38 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       "Start a command on a remote host over SSH. Returns a run_id. The remote process keeps running even if the SSH connection drops; poll with ssh_poll and terminate with ssh_kill.",
     parameters: dispatchSchema,
     handler: async (args) => {
-      const password = args.credential_id
+      const explicitCredId = args.credential_id;
+      let password: string | undefined = explicitCredId
         ? await options.credentials.request({
-            credentialId: args.credential_id,
+            credentialId: explicitCredId,
             host: args.host,
             username: args.username,
           })
         : undefined;
-      const session = await options.sshClient.connect({
-        host: args.host,
-        port: args.port ?? DEFAULT_PORT,
-        username: args.username,
-        ...(password !== undefined ? { password } : {}),
-        ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
-      });
+      const connectOnce = (pw: string | undefined): Promise<SshSession> =>
+        options.sshClient.connect({
+          host: args.host,
+          port: args.port ?? DEFAULT_PORT,
+          username: args.username,
+          ...(pw !== undefined ? { password: pw } : {}),
+          ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
+        });
+      let session: SshSession;
+      try {
+        session = await connectOnce(password);
+      } catch (err: unknown) {
+        if (!explicitCredId && password === undefined && isAuthError(err)) {
+          const implicitId = `${args.username}@${args.host}`;
+          password = await options.credentials.request({
+            credentialId: implicitId,
+            host: args.host,
+            username: args.username,
+          });
+          session = await connectOnce(password);
+        } else {
+          throw err;
+        }
+      }
       const run = store.createRun({
         command: args.command,
         cwd: args.cwd ?? `${args.username}@${args.host}`,
@@ -255,4 +273,9 @@ async function runPoller(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAuthError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /authentication|all configured authentication methods failed|auth/i.test(message);
 }

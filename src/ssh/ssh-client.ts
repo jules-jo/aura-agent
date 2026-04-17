@@ -38,16 +38,17 @@ export function createSsh2Client(): SshClient {
 function connectWithSsh2(opts: SshConnectOpts): Promise<SshSession> {
   return new Promise<SshSession>((resolve, reject) => {
     const client = new Client();
-    const onError = (err: Error): void => {
-      client.removeListener("ready", onReady);
+    let settled = false;
+    client.on("error", (err: Error) => {
+      if (settled) return;
+      settled = true;
       reject(err);
-    };
-    const onReady = (): void => {
-      client.removeListener("error", onError);
+    });
+    client.once("ready", () => {
+      if (settled) return;
+      settled = true;
       resolve(wrapClient(client));
-    };
-    client.once("ready", onReady);
-    client.once("error", onError);
+    });
     const resolvedAgent = opts.agent ?? defaultAgent();
     client.connect({
       host: opts.host,
