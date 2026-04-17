@@ -1,5 +1,39 @@
 # Wiki Log
 
+## [2026-04-17] build | P1 local dispatch loop landed
+Shipped the Phase 1 dispatch/poll pattern. Two SDK-registered tools
+(`local_dispatch`, `local_poll`) defined via `defineTool` + Zod schemas in
+`src/tools/local-run.ts`; they spawn a shell child (`shell: true` for
+Windows/POSIX parity), stream stdout/stderr line-by-line into an in-process
+`RunStore` (`src/runs/*`), bucket lines into iterations (default 20 lines =
+1 iteration; tunable per dispatch), and expose a long-poll `waitForUpdate`
+that holds the model's `local_poll` call open for up to `wait_ms` until a
+new iteration or status change arrives -- no busy-waiting. Dispatch is
+injected with a `Spawner` abstraction so tests mock the child without
+`child_process`. TUI run pane now renders the active run live via
+`useSyncExternalStore`: status pill (yellow/green/red), command, cwd,
+iteration + line counters, duration, exit code, and a tail of the last 8
+lines. System message (`phase1SystemMessage`) guides the model to
+dispatch-then-poll-then-summarise. Permission handler swapped from deny-all
+to SDK's `approveAll` for P1 (HITL arrives in P5). 14 vitest tests green
+(store flush-at-threshold, flush-on-completion, waitForUpdate semantics;
+tool dispatch-plumbing, since-iteration slicing, run_not_found, error path).
+Noted SDK quirk: `@github/copilot-sdk`'s transitive `vscode-jsonrpc/node`
+import lacks `.js` extension and breaks vitest's ESM resolver -- worked
+around by `vi.mock('@github/copilot-sdk', ...)` in the tool test since
+`defineTool` is a trivial passthrough.
+
+## [2026-04-17] decision | P1 tools are SDK-native, not MCP subprocess
+Roadmap originally described P1 as "one MCP tool server exposing
+local.dispatch / local.poll". In practice, the SDK's `defineTool` registers
+in-process tools over the same protocol the model sees for any tool, so
+spinning up a subprocess for P1 would be pure ceremony. Decision: use
+`defineTool` for P1's local tools; defer the real MCP-subprocess path to
+P3 (catalog/wiki tools) where a long-lived server is useful. Tool names
+switched from `local.dispatch` / `local.poll` (MCP-prefix convention) to
+`local_dispatch` / `local_poll` for the in-process namespace; the dotted
+names will return naturally when P3 introduces MCP prefixes.
+
 ## [2026-04-17] verify | P0 validated on Windows host
 User ran `npm install`, `npm run typecheck`, `npm test`, `npm start` on the
 Windows target and confirmed the TUI boots, a prompt round-trips to the

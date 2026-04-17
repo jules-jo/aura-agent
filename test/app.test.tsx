@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { render } from "ink-testing-library";
 import { App } from "../src/app.js";
 import type { AuraSession, AssistantEvent } from "../src/session/copilot.js";
+import { RunStore } from "../src/runs/run-store.js";
 
 async function flushEffects(): Promise<void> {
   for (let i = 0; i < 3; i++) {
@@ -39,7 +40,8 @@ function makeFakeSession(): {
 describe("App", () => {
   it("renders the two panes and the prompt", () => {
     const { session } = makeFakeSession();
-    const { lastFrame } = render(<App session={session} />);
+    const store = new RunStore();
+    const { lastFrame } = render(<App session={session} runStore={store} />);
     const frame = lastFrame() ?? "";
     expect(frame).toContain("aura");
     expect(frame).toContain("chat");
@@ -48,7 +50,8 @@ describe("App", () => {
 
   it("appends assistant final responses to the chat pane", async () => {
     const { session, emit } = makeFakeSession();
-    const { lastFrame } = render(<App session={session} />);
+    const store = new RunStore();
+    const { lastFrame } = render(<App session={session} runStore={store} />);
     await flushEffects();
     emit({ kind: "final", text: "hello from aura" });
     await flushEffects();
@@ -57,7 +60,8 @@ describe("App", () => {
 
   it("shows streaming deltas while the assistant is thinking", async () => {
     const { session, emit } = makeFakeSession();
-    const { lastFrame } = render(<App session={session} />);
+    const store = new RunStore();
+    const { lastFrame } = render(<App session={session} runStore={store} />);
     await flushEffects();
     emit({ kind: "delta", text: "partial " });
     emit({ kind: "delta", text: "response" });

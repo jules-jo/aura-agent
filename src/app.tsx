@@ -4,14 +4,16 @@ import { ChatPane, type ChatMessage } from "./components/chat-pane.js";
 import { RunPane } from "./components/run-pane.js";
 import { PromptInput } from "./components/prompt-input.js";
 import type { AuraSession } from "./session/copilot.js";
+import type { RunStore } from "./runs/run-store.js";
 
-type Props = {
+interface Props {
   session: AuraSession;
-};
+  runStore: RunStore;
+}
 
 type Status = "idle" | "thinking" | "error";
 
-export function App({ session }: Props): React.ReactElement {
+export function App({ session, runStore }: Props): React.ReactElement {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState("");
@@ -73,7 +75,7 @@ export function App({ session }: Props): React.ReactElement {
           <ChatPane messages={messages} pending={pending} status={status} error={error} />
         </Box>
         <Box flexDirection="column" width="40%">
-          <RunPane />
+          <RunPane store={runStore} />
         </Box>
       </Box>
       <PromptInput

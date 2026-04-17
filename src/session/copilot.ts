@@ -1,8 +1,10 @@
-import { CopilotClient } from "@github/copilot-sdk";
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
 import type {
   CopilotClientOptions,
   PermissionHandler,
   SessionEvent,
+  SystemMessageConfig,
+  Tool,
 } from "@github/copilot-sdk";
 
 export interface AssistantDelta {
@@ -31,20 +33,20 @@ export interface AuraSession {
 export interface StartSessionOptions {
   model?: string;
   logLevel?: CopilotClientOptions["logLevel"];
+  tools?: Tool<any>[];
+  systemMessage?: SystemMessageConfig;
+  onPermissionRequest?: PermissionHandler;
 }
 
 const DEFAULT_MODEL = "gpt-4.1";
-
-const denyAllPermissions: PermissionHandler = () => ({
-  kind: "denied-by-rules",
-  rules: [{ reason: "Phase 0: no tools configured; denying all permission requests." }],
-});
 
 export async function startSession(options: StartSessionOptions = {}): Promise<AuraSession> {
   const client = new CopilotClient({ logLevel: options.logLevel ?? "none" });
   const session = await client.createSession({
     model: options.model ?? DEFAULT_MODEL,
-    onPermissionRequest: denyAllPermissions,
+    onPermissionRequest: options.onPermissionRequest ?? approveAll,
+    ...(options.tools ? { tools: options.tools } : {}),
+    ...(options.systemMessage ? { systemMessage: options.systemMessage } : {}),
   });
 
   const listeners = new Set<(event: AssistantEvent) => void>();

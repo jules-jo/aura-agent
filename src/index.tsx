@@ -3,10 +3,19 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
+import { phase1SystemMessage } from "./session/system-message.js";
+import { RunStore } from "./runs/run-store.js";
+import { localRunTools } from "./tools/local-run.js";
 
 async function main(): Promise<void> {
-  const session = await startSession({ logLevel: "none" });
-  const { waitUntilExit } = render(<App session={session} />);
+  const runStore = new RunStore();
+  const tools = localRunTools(runStore, { defaultCwd: process.cwd() });
+  const session = await startSession({
+    logLevel: "none",
+    tools,
+    systemMessage: phase1SystemMessage,
+  });
+  const { waitUntilExit } = render(<App session={session} runStore={runStore} />);
   try {
     await waitUntilExit();
   } finally {
