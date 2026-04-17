@@ -9,8 +9,19 @@ vi.mock("@github/copilot-sdk", () => ({
 
 const { RunStore } = await import("../src/runs/run-store.js");
 const { CredentialStore } = await import("../src/ssh/credential-store.js");
+const { ConfirmationStore } = await import("../src/ssh/confirmation-store.js");
 const { RunStateStore } = await import("../src/ssh/run-state-store.js");
 const { sshRunTools } = await import("../src/tools/ssh-run.js");
+
+function autoApproving(): InstanceType<typeof ConfirmationStore> {
+  const store = new ConfirmationStore();
+  store.subscribe((pending) => {
+    for (const _ of pending) {
+      store.resolveNext(true);
+    }
+  });
+  return store;
+}
 type SshClient = import("../src/ssh/ssh-client.js").SshClient;
 type SshSession = import("../src/ssh/ssh-client.js").SshSession;
 type SshExecResult = import("../src/ssh/ssh-client.js").SshExecResult;
@@ -77,6 +88,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: client,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 5,
     });
@@ -109,7 +121,7 @@ describe("ssh-run tools", () => {
     const credentials = new CredentialStore();
     const runStateStore = new RunStateStore({ dataDir });
     const { client } = makeFakeClient(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
-    const tools = sshRunTools(store, { sshClient: client, credentials, runStateStore });
+    const tools = sshRunTools(store, { sshClient: client, credentials, confirmations: autoApproving(), runStateStore });
     const result = await callHandler<{ error?: string }>(tools, "ssh_poll", {
       run_id: "missing",
       wait_ms: 0,
@@ -130,6 +142,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: client,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 5,
     });
@@ -170,6 +183,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: spyingClient,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 50,
       useAgentAuth: true,
@@ -214,6 +228,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: client,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 5,
     });
@@ -263,6 +278,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: spyingClient,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 50,
     });
@@ -315,6 +331,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: spyingClient,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 50,
       useAgentAuth: true,
@@ -359,6 +376,7 @@ describe("ssh-run tools", () => {
     const tools = sshRunTools(store, {
       sshClient: client,
       credentials,
+      confirmations: autoApproving(),
       runStateStore,
       pollIntervalMs: 50,
     });
@@ -375,5 +393,108 @@ describe("ssh-run tools", () => {
     expect(calls.some((c) => c.includes("kill -TERM"))).toBe(true);
     // give the poller a chance to observe stopPoller and exit before cleanup
     await new Promise((r) => setTimeout(r, 80));
+  });
+
+  it("ssh_dispatch returns user_declined and does not connect when confirmation is denied", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const runStateStore = new RunStateStore({ dataDir });
+    const confirmations = new ConfirmationStore();
+    confirmations.subscribe(() => {
+      for (const _ of confirmations.getPending()) confirmations.resolveNext(false);
+    });
+    let connectCalls = 0;
+    const { client } = makeFakeClient(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const spy: typeof client = {
+      connect: async (opts) => {
+        connectCalls += 1;
+        return client.connect(opts);
+      },
+    };
+    credentials.set("c1", "pw");
+    const tools = sshRunTools(store, {
+      sshClient: spy,
+      credentials,
+      confirmations,
+      runStateStore,
+      pollIntervalMs: 5,
+    });
+    const result = await callHandler<{ error?: string }>(tools, "ssh_dispatch", {
+      host: "h",
+      username: "u",
+      credential_id: "c1",
+      command: "rm -rf /",
+    });
+    expect(result.error).toBe("user_declined");
+    expect(connectCalls).toBe(0);
+  });
+
+  it("ssh_reattach resumes polling without re-running the command", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    credentials.set("root@h.example", "pw");
+    const runStateStore = new RunStateStore({ dataDir });
+    const record = {
+      runId: "prev-run",
+      host: "h.example",
+      port: 22,
+      username: "root",
+      command: "sleep 60 && echo done",
+      remoteBase: "~/.aura/runs",
+      remotePidPath: "~/.aura/runs/prev-run/pid",
+      remoteLogPath: "~/.aura/runs/prev-run/output.log",
+      startedAt: new Date().toISOString(),
+      status: "failed" as const,
+    };
+    await runStateStore.create(record);
+    let dispatchCalls = 0;
+    const { client } = makeFakeClient(async (command) => {
+      if (command.includes("dispatch_ok")) {
+        dispatchCalls += 1;
+        return { stdout: "dispatch_ok\n", stderr: "", exitCode: 0 };
+      }
+      return {
+        stdout: "STATE=stopped\nEXIT=0\nSIZE=5\n---OUTPUT---\ndone\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      pollIntervalMs: 5,
+    });
+    const result = await callHandler<{ run_id: string; status: string; exit_code: number | null }>(
+      tools,
+      "ssh_reattach",
+      { run_id: "prev-run" },
+    );
+    expect(result.run_id).toBe("prev-run");
+    expect(result.status).toBe("completed");
+    expect(result.exit_code).toBe(0);
+    expect(dispatchCalls).toBe(0);
+    const persisted = await runStateStore.read("prev-run");
+    expect(persisted?.status).toBe("completed");
+    const inMemory = store.get("prev-run");
+    expect(inMemory?.status).toBe("completed");
+  });
+
+  it("ssh_reattach returns run_not_found for an unknown run_id", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const runStateStore = new RunStateStore({ dataDir });
+    const { client } = makeFakeClient(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+    });
+    const result = await callHandler<{ error?: string }>(tools, "ssh_reattach", {
+      run_id: "nope",
+    });
+    expect(result.error).toBe("run_not_found");
   });
 });

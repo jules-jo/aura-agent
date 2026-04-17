@@ -5,6 +5,7 @@ import { App } from "../src/app.js";
 import type { AuraSession, AssistantEvent, AuraModelInfo } from "../src/session/copilot.js";
 import { RunStore } from "../src/runs/run-store.js";
 import { CredentialStore } from "../src/ssh/credential-store.js";
+import { ConfirmationStore } from "../src/ssh/confirmation-store.js";
 
 async function flushEffects(): Promise<void> {
   for (let i = 0; i < 3; i++) {
@@ -65,8 +66,9 @@ describe("App", () => {
     const { session } = makeFakeSession();
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     const frame = lastFrame() ?? "";
     expect(frame).toContain("aura");
@@ -78,8 +80,9 @@ describe("App", () => {
     const { session, emit } = makeFakeSession();
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     await flushEffects();
     emit({ kind: "final", text: "hello from aura" });
@@ -91,8 +94,9 @@ describe("App", () => {
     const { session, emit } = makeFakeSession();
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     await flushEffects();
     emit({ kind: "delta", text: "partial " });
@@ -105,8 +109,9 @@ describe("App", () => {
     const { session } = makeFakeSession({ initialModel: "gpt-4.1" });
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     await flushEffects();
     expect(lastFrame() ?? "").toContain("model: gpt-4.1");
@@ -116,8 +121,9 @@ describe("App", () => {
     const { session } = makeFakeSession();
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     await flushEffects();
     expect(lastFrame() ?? "").toContain("(server default)");
@@ -127,8 +133,9 @@ describe("App", () => {
     const { session } = makeFakeSession({ initialModel: "a" });
     const store = new RunStore();
     const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
     const { lastFrame } = render(
-      <App session={session} runStore={store} credentials={credentials} />,
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
     );
     await flushEffects();
     expect(lastFrame() ?? "").toContain("model: a");

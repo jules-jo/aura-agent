@@ -4,6 +4,7 @@ import type { Tool } from "@github/copilot-sdk";
 import type { RunStore } from "../runs/run-store.js";
 import type { SshClient, SshSession } from "../ssh/ssh-client.js";
 import type { CredentialStore } from "../ssh/credential-store.js";
+import type { ConfirmationStore } from "../ssh/confirmation-store.js";
 import type { RunStateStore, RunStateRecord } from "../ssh/run-state-store.js";
 import {
   buildDispatchScript,
@@ -48,11 +49,16 @@ const killSchema = z.object({
 export interface SshToolsOptions {
   sshClient: SshClient;
   credentials: CredentialStore;
+  confirmations: ConfirmationStore;
   runStateStore: RunStateStore;
   pollIntervalMs?: number;
   readyTimeoutMs?: number;
   useAgentAuth?: boolean;
 }
+
+const reattachSchema = z.object({
+  run_id: z.string().describe("Run identifier returned by a prior ssh_dispatch."),
+});
 
 interface ActiveSshRun {
   session: SshSession;
@@ -66,9 +72,16 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
 
   const dispatchTool = defineTool("ssh_dispatch", {
     description:
-      "Start a command on a remote host over SSH. Returns a run_id. The remote process keeps running even if the SSH connection drops; poll with ssh_poll and terminate with ssh_kill.",
+      "Start a command on a remote host over SSH. Returns a run_id. The remote process keeps running even if the SSH connection drops; poll with ssh_poll, terminate with ssh_kill, reconnect to an existing run with ssh_reattach.",
     parameters: dispatchSchema,
     handler: async (args) => {
+      const approved = await options.confirmations.request({
+        summary: `run on ${args.username}@${args.host}`,
+        detail: args.command,
+      });
+      if (!approved) {
+        return { error: "user_declined", host: args.host, command: args.command };
+      }
       const credentialId = args.credential_id ?? `${args.username}@${args.host}`;
       let password: string | undefined;
       if (options.useAgentAuth) {
@@ -210,6 +223,11 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
     handler: async (args) => {
       const entry = active.get(args.run_id);
       if (!entry) return { run_id: args.run_id, error: "run_not_found_or_inactive" };
+      const approved = await options.confirmations.request({
+        summary: `kill remote run ${args.run_id}`,
+        detail: `signal ${args.signal ?? "TERM"}`,
+      });
+      if (!approved) return { run_id: args.run_id, error: "user_declined" };
       const script = buildKillScript({
         remoteBase: entry.remoteBase,
         runId: args.run_id,
@@ -225,7 +243,95 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
     },
   });
 
-  return [dispatchTool, pollTool, killTool];
+  const reattachTool = defineTool("ssh_reattach", {
+    description:
+      "Reconnect to an SSH run that was previously dispatched. Reads the persisted run state, opens a new SSH connection, and resumes tailing the remote log without re-running the command. Use this when an ssh_poll previously failed with a connection error or when the user asks what happened to a past run.",
+    parameters: reattachSchema,
+    handler: async (args) => {
+      const record = await options.runStateStore.read(args.run_id);
+      if (!record) return { run_id: args.run_id, error: "run_not_found" };
+      if (active.has(args.run_id)) {
+        return { run_id: args.run_id, error: "already_attached" };
+      }
+      const credentialId = record.credentialId ?? `${record.username}@${record.host}`;
+      let password: string | undefined;
+      if (!options.useAgentAuth) {
+        password = await options.credentials.request({
+          credentialId,
+          host: record.host,
+          username: record.username,
+        });
+      }
+      const connectOnce = (pw: string | undefined): Promise<SshSession> =>
+        options.sshClient.connect({
+          host: record.host,
+          port: record.port,
+          username: record.username,
+          ...(pw !== undefined ? { password: pw } : {}),
+          ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
+        });
+      let session: SshSession;
+      try {
+        session = await connectOnce(password);
+      } catch (err: unknown) {
+        if (password === undefined && isAuthError(err)) {
+          options.credentials.forget(credentialId);
+          password = await options.credentials.request({
+            credentialId,
+            host: record.host,
+            username: record.username,
+          });
+          session = await connectOnce(password);
+        } else {
+          throw err;
+        }
+      }
+      store.adoptRun({
+        id: record.runId,
+        command: record.command,
+        cwd: record.cwd ?? `${record.username}@${record.host}`,
+        startedAt: record.startedAt,
+      });
+      const tail = buildTailScript({
+        remoteBase: record.remoteBase,
+        runId: record.runId,
+        byteOffset: 0,
+      });
+      const firstPoll = await session.exec(tail);
+      const parsed = parsePollOutput(firstPoll.stdout);
+      if (parsed.output.length > 0) {
+        const lines = parsed.output.split(/\r?\n/).filter((line) => line.length > 0);
+        if (lines.length > 0) store.appendLines(record.runId, lines);
+      }
+      if (parsed.state === "stopped" || parsed.state === "missing") {
+        const exit = parsed.exitCode;
+        store.completeRun(record.runId, exit);
+        await options.runStateStore.markComplete(record.runId, exit);
+        await session.close();
+        return {
+          run_id: record.runId,
+          status: exit === 0 ? "completed" : "failed",
+          exit_code: exit,
+          total_bytes: parsed.totalBytes,
+        };
+      }
+      const entry: ActiveSshRun = {
+        session,
+        byteOffset: parsed.totalBytes,
+        stopPoller: false,
+        remoteBase: record.remoteBase,
+      };
+      active.set(record.runId, entry);
+      void runPoller(record.runId, entry, store, options);
+      return {
+        run_id: record.runId,
+        status: "running",
+        total_bytes: parsed.totalBytes,
+      };
+    },
+  });
+
+  return [dispatchTool, pollTool, killTool, reattachTool];
 }
 
 async function runPoller(

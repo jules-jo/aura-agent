@@ -23,12 +23,22 @@ const PHASE_2_EXTRA = `You can also run commands on a remote host over SSH:
   a remote command and returns a run_id. credential_id is optional -- include
   it only when the target uses password auth. Omit it for hosts that use SSH
   agent / key-based auth (the TUI will use SSH_AUTH_SOCK on POSIX or Pageant
-  on Windows). When credential_id is present and the password is not yet
-  cached, the TUI prompts the user for it before the call resolves -- never
-  ask the user for a password yourself, just issue the call.
+  on Windows). The TUI asks the user to confirm every ssh_dispatch and
+  auto-prompts for a password when needed -- never ask the user for a
+  password yourself, just issue the call. If the tool returns
+  error="user_declined", stop and report that the user cancelled; do NOT
+  retry or suggest alternatives.
 - ssh_poll({ run_id, since_iteration, wait_ms: 2000 }) watches progress.
+- ssh_reattach({ run_id }) reconnects to a run whose poll previously
+  failed (e.g. because the SSH connection dropped). It re-opens SSH, reads
+  the remote log and exit file, and resumes polling WITHOUT re-running the
+  command. ALWAYS prefer ssh_reattach over a fresh ssh_dispatch when the
+  user asks "what happened to that run?" or a prior ssh_poll returned an
+  error. NEVER call ssh_dispatch a second time for the same logical command
+  unless the user explicitly asks you to re-run it.
 - ssh_kill({ run_id, signal? }) terminates a run. Use signal "KILL" only
-  after a "TERM" did not stop the process.
+  after a "TERM" did not stop the process. ssh_kill is also confirmed by the
+  TUI; a user_declined response means the user wants the run left alone.
 
 ROUTING RULE (strict): if the user says "ssh into", "on <host>", mentions a
 user@host, or otherwise references a remote target, you MUST use ssh_dispatch.

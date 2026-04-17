@@ -4,24 +4,33 @@ import { ChatPane, type ChatMessage } from "./components/chat-pane.js";
 import { RunPane } from "./components/run-pane.js";
 import { PromptInput } from "./components/prompt-input.js";
 import { PasswordPrompt } from "./components/password-prompt.js";
+import { ConfirmPrompt } from "./components/confirm-prompt.js";
 import type { AuraSession, AuraModelInfo } from "./session/copilot.js";
 import type { RunStore } from "./runs/run-store.js";
 import type { CredentialStore, PendingPrompt } from "./ssh/credential-store.js";
+import type { ConfirmationStore, PendingConfirmation } from "./ssh/confirmation-store.js";
 
 interface Props {
   session: AuraSession;
   runStore: RunStore;
   credentials: CredentialStore;
+  confirmations: ConfirmationStore;
 }
 
 type Status = "idle" | "thinking" | "error";
 
-export function App({ session, runStore, credentials }: Props): React.ReactElement {
+export function App({ session, runStore, credentials, confirmations }: Props): React.ReactElement {
   const pendingPrompts = useSyncExternalStore<readonly PendingPrompt[]>(
     credentials.subscribe,
     credentials.getPending,
     credentials.getPending,
   );
+  const pendingConfirmations = useSyncExternalStore<readonly PendingConfirmation[]>(
+    confirmations.subscribe,
+    confirmations.getPending,
+    confirmations.getPending,
+  );
+  const activeConfirmation = pendingConfirmations[0];
   const activePrompt = pendingPrompts[0];
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -146,7 +155,9 @@ export function App({ session, runStore, credentials }: Props): React.ReactEleme
           <RunPane store={runStore} />
         </Box>
       </Box>
-      {activePrompt ? (
+      {activeConfirmation ? (
+        <ConfirmPrompt request={activeConfirmation} />
+      ) : activePrompt ? (
         <PasswordPrompt request={activePrompt} />
       ) : (
         <PromptInput

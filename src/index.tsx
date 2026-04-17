@@ -8,18 +8,20 @@ import { RunStore } from "./runs/run-store.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
 import { CredentialStore } from "./ssh/credential-store.js";
+import { ConfirmationStore } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
 import { createSsh2Client } from "./ssh/ssh-client.js";
 
 async function main(): Promise<void> {
   const runStore = new RunStore();
   const credentials = new CredentialStore();
+  const confirmations = new ConfirmationStore();
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
   const tools = [
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
-    ...sshRunTools(runStore, { sshClient, credentials, runStateStore, useAgentAuth }),
+    ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
   ];
   const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
   const session = await startSession({
@@ -30,7 +32,12 @@ async function main(): Promise<void> {
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
   const { waitUntilExit } = render(
-    <App session={session} runStore={runStore} credentials={credentials} />,
+    <App
+      session={session}
+      runStore={runStore}
+      credentials={credentials}
+      confirmations={confirmations}
+    />,
   );
   try {
     await waitUntilExit();

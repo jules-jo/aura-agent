@@ -54,6 +54,33 @@ export class RunStore {
     return this.commit(run);
   }
 
+  adoptRun(input: { id: string; command: string; cwd: string; startedAt: string; iterationSize?: number }): Run {
+    const existing = this.runs.get(input.id);
+    if (existing) {
+      existing.status = "running";
+      delete existing.completedAt;
+      delete existing.exitCode;
+      delete existing.error;
+      this.activeId = input.id;
+      return this.commit(existing);
+    }
+    const run: InternalRun = {
+      id: input.id,
+      command: input.command,
+      cwd: input.cwd,
+      status: "running",
+      startedAt: input.startedAt,
+      iterations: [],
+      totalLines: 0,
+      iterationSize: input.iterationSize ?? DEFAULT_ITERATION_SIZE,
+      pendingLines: [],
+      tail: [],
+    };
+    this.runs.set(input.id, run);
+    this.activeId = input.id;
+    return this.commit(run);
+  }
+
   appendLines(id: string, lines: readonly string[]): void {
     const run = this.runs.get(id);
     if (!run || run.status !== "running") return;
