@@ -28,13 +28,16 @@ export function buildDispatchScript(input: DispatchScriptInput): string {
   const cwdClause = input.cwd ? `cd ${shellEscape(input.cwd)} && ` : "";
   const envClause = buildEnvExports(input.env);
   const innerCommand = `${envClause}${cwdClause}${input.command}`;
-  const wrapped = [
+  // Commands are joined with ';' (not '&&') because '&' (background) cannot
+  // be chained with '&&'. 'set -e' gives us the fail-fast behaviour we would
+  // have gotten from '&&'. Keep 'nohup ... &' adjacent to 'echo $!' so the
+  // PID we capture is the one we just backgrounded.
+  return [
+    `set -e`,
     `mkdir -p ${shellEscape(paths.runDir)}`,
-    `nohup sh -c ${shellEscape(`${innerCommand}; echo $? > ${shellEscape(paths.exitPath)}`)} > ${shellEscape(paths.logPath)} 2>&1 &`,
-    `echo $! > ${shellEscape(paths.pidPath)}`,
+    `nohup sh -c ${shellEscape(`${innerCommand}; echo $? > ${shellEscape(paths.exitPath)}`)} > ${shellEscape(paths.logPath)} 2>&1 & echo $! > ${shellEscape(paths.pidPath)}`,
     `echo dispatch_ok`,
-  ].join(" && ");
-  return wrapped;
+  ].join("; ");
 }
 
 export interface TailScriptInput {

@@ -29,6 +29,16 @@ describe("remote-script", () => {
     expect(script).toContain("dispatch_ok");
   });
 
+  it("buildDispatchScript does not chain '&' with '&&' (bash syntax error)", () => {
+    const script = buildDispatchScript({
+      runId: "r1",
+      command: "echo hi",
+      remoteBase: "~/.aura/runs",
+    });
+    // '&' is a command terminator (backgrounding). The shell rejects '& &&'.
+    expect(script).not.toMatch(/&\s*&&/);
+  });
+
   it("buildDispatchScript honours cwd and env", () => {
     const script = buildDispatchScript({
       runId: "r1",
