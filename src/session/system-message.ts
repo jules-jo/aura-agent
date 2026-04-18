@@ -68,6 +68,11 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   named test with an optional named system and returns the final runnable
   command/cwd/env plus SSH target fields. Prefer this tool when the user says
   "run test X in system A".
+- local_check_file({ path, cwd? }) checks whether a local regular file exists.
+  Use it for read-only preflight checks like calibration files.
+- ssh_check_file({ host, username, path, port?, credential_id?, cwd? }) checks
+  whether a remote regular file exists over SSH. Use it for read-only
+  preflight checks like calibration files.
 - wiki_read({ path }) reads any markdown page in the repo wiki and returns its
   frontmatter and body.
 - wiki_write({ path, content, overwrite? }) writes a markdown page into the
@@ -86,9 +91,31 @@ test/spec rather than giving an inline shell command:
    call catalog_resolve_run again with provided_args merged from the answers.
 7. If invalid_args is non-empty, explain the invalid value and allowed choices,
    then ask again.
-8. Only dispatch when ready_to_dispatch is true.
-9. If execution_target is "local", run the returned command with local_dispatch.
-10. If execution_target is "ssh", run the returned command with ssh_dispatch,
+8. If the resolved spec has a non-empty preflight array, do not dispatch the
+   main test yet. Each preflight step describes:
+   - a file_exists check with a resolved path
+   - the question to ask when the file exists
+   - the question to ask when the file is missing
+   - the named prerequisite test to run if the user says yes
+   - an optional before_test_ask question to ask before the main test
+9. For each preflight step, run local_check_file or ssh_check_file based on the
+   resolved execution_target. Use the resolved cwd for relative paths, and pass
+   host/username/port/credential_id for SSH checks.
+10. If a file check returns an error, stop and explain it plainly instead of
+    guessing.
+11. If the check returns exists=true, ask preflight.if_exists.ask. If it returns
+    exists=false, ask preflight.if_missing.ask.
+12. If the user says yes, say plainly that you are running the referenced
+    prerequisite test, resolve it with catalog_resolve_run using the same
+    system and current provided args when relevant, then dispatch it and poll
+    until it finishes before continuing.
+13. Whether the prerequisite test was run or skipped, if before_test_ask is
+    present then ask it before dispatching the main test. If the user says no,
+    stop. Do not run the main test without that approval.
+14. Only dispatch the main test when ready_to_dispatch is true and all
+    preflight steps are finished or explicitly skipped with user approval.
+15. If execution_target is "local", run the returned command with local_dispatch.
+16. If execution_target is "ssh", run the returned command with ssh_dispatch,
    passing host, username, port when present, credential_id when present, and
    cwd/env/command from the resolved spec.
 

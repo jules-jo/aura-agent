@@ -1,3 +1,6 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@github/copilot-sdk", () => ({
@@ -148,5 +151,31 @@ describe("local-run tools", () => {
     });
 
     expect(seenEnv).toEqual({ FOO: "bar" });
+  });
+
+  it("local_check_file reports whether a file exists", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "aura-local-check-"));
+    try {
+      await fs.writeFile(path.join(rootDir, "calibration.json"), "{}", "utf8");
+      const store = new RunStore();
+      const tools = localRunTools(store, {
+        defaultCwd: rootDir,
+        spawner: () => makeFakeChild().child,
+      });
+
+      const exists = await callHandler<{ exists: boolean; absolute_path: string }>(tools, "local_check_file", {
+        path: "calibration.json",
+      });
+      expect(exists.exists).toBe(true);
+      expect(exists.absolute_path).toBe(path.join(rootDir, "calibration.json"));
+
+      const missing = await callHandler<{ exists: boolean; absolute_path: string }>(tools, "local_check_file", {
+        path: "missing.json",
+      });
+      expect(missing.exists).toBe(false);
+      expect(missing.absolute_path).toBe(path.join(rootDir, "missing.json"));
+    } finally {
+      await fs.rm(rootDir, { recursive: true, force: true });
+    }
   });
 });

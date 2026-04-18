@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import { defineTool } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
@@ -48,6 +50,11 @@ const pollSchema = z.object({
     .max(10000)
     .optional()
     .describe("How long to wait for a new iteration before returning. Default 2000."),
+});
+
+const checkFileSchema = z.object({
+  path: z.string().min(1).describe("File path to check. Relative paths are resolved from cwd or the TUI cwd."),
+  cwd: z.string().optional().describe("Optional working directory for resolving relative paths."),
 });
 
 export interface LocalToolsOptions {
@@ -115,7 +122,42 @@ export function localRunTools(store: RunStore, options: LocalToolsOptions): Tool
     },
   });
 
-  return [dispatchTool, pollTool];
+  const checkFileTool = defineTool("local_check_file", {
+    description:
+      "Check whether a local regular file exists. Use this for read-only preflight checks like calibration files.",
+    parameters: checkFileSchema,
+    handler: async (args) => {
+      const cwd = args.cwd ?? options.defaultCwd;
+      const absolutePath = path.resolve(cwd, args.path);
+      try {
+        const stats = await fs.stat(absolutePath);
+        return {
+          path: args.path,
+          cwd,
+          absolute_path: absolutePath,
+          exists: stats.isFile(),
+        };
+      } catch (err: unknown) {
+        if (typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT") {
+          return {
+            path: args.path,
+            cwd,
+            absolute_path: absolutePath,
+            exists: false,
+          };
+        }
+        return {
+          error: "check_failed",
+          path: args.path,
+          cwd,
+          absolute_path: absolutePath,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  });
+
+  return [dispatchTool, pollTool, checkFileTool];
 }
 
 function wireChild(child: ChildLike, store: RunStore, runId: string): void {

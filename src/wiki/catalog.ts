@@ -37,6 +37,25 @@ export interface CatalogInvalidArg {
   choices: string[] | null;
 }
 
+export interface CatalogPreflightCheck {
+  kind: "file_exists";
+  path: string | null;
+  path_template: string;
+}
+
+export interface CatalogPreflightAction {
+  ask: string;
+  run_test: string;
+}
+
+export interface CatalogPreflightStep {
+  name: string;
+  check: CatalogPreflightCheck;
+  if_exists: CatalogPreflightAction;
+  if_missing: CatalogPreflightAction;
+  before_test_ask: string | null;
+}
+
 export interface TestLookup {
   score: number;
   match_type: "name" | "alias" | "slug" | "fuzzy";
@@ -69,6 +88,7 @@ export interface TestLookup {
   pass_pattern: string | null;
   fail_pattern: string | null;
   summary: Record<string, unknown> | null;
+  preflight: CatalogPreflightStep[];
   execution_target: "local" | "ssh" | null;
   required_fields: string[];
   frontmatter: Record<string, unknown>;
@@ -110,6 +130,7 @@ export interface ResolvedRunSpec {
   pass_pattern: string | null;
   fail_pattern: string | null;
   summary: Record<string, unknown> | null;
+  preflight: CatalogPreflightStep[];
   args: CatalogArgSpec[];
   arg_values: Record<string, string>;
   missing_args: CatalogMissingArg[];
@@ -167,6 +188,24 @@ const catalogSummarySchema = z.object({
   include_tail_lines: z.number().int().positive().optional(),
 }).passthrough();
 
+const catalogPreflightActionSchema = z.object({
+  ask: z.string().min(1),
+  run_test: z.string().min(1),
+});
+
+const catalogPreflightCheckSchema = z.object({
+  kind: z.literal("file_exists"),
+  path: z.string().min(1),
+});
+
+const catalogPreflightStepSchema = z.object({
+  name: z.string().min(1),
+  check: catalogPreflightCheckSchema,
+  if_exists: catalogPreflightActionSchema,
+  if_missing: catalogPreflightActionSchema,
+  before_test_ask: z.string().min(1).optional(),
+});
+
 const testFrontmatterSchema = z
   .object({
     tags: z.array(z.string().min(1)).optional(),
@@ -185,6 +224,7 @@ const testFrontmatterSchema = z
     pass_pattern: z.string().min(1).optional(),
     fail_pattern: z.string().min(1).optional(),
     summary: catalogSummarySchema.optional(),
+    preflight: z.array(catalogPreflightStepSchema).optional().default([]),
     errors: z.unknown().optional(),
   })
   .passthrough()
@@ -338,6 +378,7 @@ export function resolveRunSpec(
     pass_pattern: test.pass_pattern,
     fail_pattern: test.fail_pattern,
     summary: test.summary,
+    preflight: test.preflight,
     args: test.args,
     arg_values: test.arg_values,
     missing_args: test.missing_args,
@@ -364,6 +405,7 @@ function buildTestLookup(
   const credentialIdResolution = resolveNullableTemplate(frontmatter.credential_id, argValues);
   const cwdResolution = resolveNullableTemplate(frontmatter.cwd, argValues);
   const envResolution = resolveStringRecordTemplate(frontmatter.env, argValues);
+  const preflightResolution = resolvePreflight(frontmatter.preflight, argValues);
 
   const unresolvedArgNames = new Set<string>([
     ...commandResolution.unresolved,
@@ -372,6 +414,7 @@ function buildTestLookup(
     ...credentialIdResolution.unresolved,
     ...cwdResolution.unresolved,
     ...envResolution.unresolved,
+    ...preflightResolution.unresolved,
   ]);
   const allMissingArgs = addTemplateDrivenMissingArgs(args, missingArgs, unresolvedArgNames);
 
@@ -421,6 +464,7 @@ function buildTestLookup(
     pass_pattern: frontmatter.pass_pattern ?? null,
     fail_pattern: frontmatter.fail_pattern ?? null,
     summary: frontmatter.summary ?? null,
+    preflight: preflightResolution.steps,
     execution_target: executionTarget,
     required_fields: requiredFields,
     frontmatter: page.frontmatter,
@@ -726,6 +770,35 @@ function resolveStringRecordTemplate(
     value: unresolved.size > 0 ? null : out,
     unresolved: [...unresolved],
   };
+}
+
+function resolvePreflight(
+  input: readonly z.infer<typeof catalogPreflightStepSchema>[],
+  values: Record<string, string>,
+): { steps: CatalogPreflightStep[]; unresolved: string[] } {
+  const unresolved = new Set<string>();
+  const steps = input.map((step) => {
+    const pathResolution = resolveTemplate(step.check.path, values);
+    for (const name of pathResolution.unresolved) unresolved.add(name);
+    return {
+      name: step.name,
+      check: {
+        kind: step.check.kind,
+        path: pathResolution.value,
+        path_template: step.check.path,
+      },
+      if_exists: {
+        ask: step.if_exists.ask,
+        run_test: step.if_exists.run_test,
+      },
+      if_missing: {
+        ask: step.if_missing.ask,
+        run_test: step.if_missing.run_test,
+      },
+      before_test_ask: step.before_test_ask ?? null,
+    };
+  });
+  return { steps, unresolved: [...unresolved] };
 }
 
 function classifyTarget(host: string | null): "local" | "ssh" {

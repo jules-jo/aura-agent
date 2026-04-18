@@ -208,6 +208,41 @@ describe("ssh-run tools", () => {
     expect(persisted?.credentialId).toBeUndefined();
   });
 
+  it("ssh_check_file reports whether a remote file exists", async () => {
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const runStateStore = new RunStateStore({ dataDir });
+    let seenCommand = "";
+    const { client, closed } = makeFakeClient(async (command) => {
+      seenCommand = command;
+      return {
+        stdout: "__AURA_FILE_EXISTS__=1\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+    const tools = sshRunTools(store, {
+      sshClient: client,
+      credentials,
+      confirmations: autoApproving(),
+      runStateStore,
+      useAgentAuth: true,
+    });
+
+    const result = await callHandler<{ exists: boolean; cwd: string | null }>(tools, "ssh_check_file", {
+      host: "h.example",
+      username: "root",
+      cwd: "/srv/app",
+      path: "calibration/z.json",
+    });
+
+    expect(result.exists).toBe(true);
+    expect(result.cwd).toBe("/srv/app");
+    expect(seenCommand).toContain("__AURA_FILE_EXISTS__");
+    expect(seenCommand).toContain("calibration/z.json");
+    expect(closed()).toBe(1);
+  });
+
   it("ssh_dispatch requests the password from the credential store when missing", async () => {
     const store = new RunStore();
     const credentials = new CredentialStore();

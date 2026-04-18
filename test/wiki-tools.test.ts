@@ -443,6 +443,133 @@ describe("wiki tools", () => {
     expect(resolved.ready_to_dispatch).toBe(true);
   });
 
+  it("catalog_resolve_run exposes preflight calibration metadata and resolves templated file checks", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "test-z.md"),
+      [
+        "---",
+        'name: "Test Z"',
+        'cwd: "/srv/app"',
+        'command: "python3 test_z.py --profile {{profile}}"',
+        "args:",
+        '  - name: "profile"',
+        "    required: true",
+        '    prompt: "Which profile should I use for Test Z?"',
+        "preflight:",
+        '  - name: "Calibration"',
+        "    check:",
+        '      kind: "file_exists"',
+        '      path: "/srv/app/calibration/{{profile}}.json"',
+        "    if_exists:",
+        '      ask: "Calibration file exists. Re-run calibration before Test Z?"',
+        '      run_test: "Calibration Z"',
+        "    if_missing:",
+        '      ask: "No calibration file found. Run calibration before Test Z?"',
+        '      run_test: "Calibration Z"',
+        '    before_test_ask: "Calibration is complete or skipped. Run Test Z now?"',
+        "---",
+        "",
+        "# Test Z",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "calibration-z.md"),
+      [
+        "---",
+        'name: "Calibration Z"',
+        'cwd: "/srv/app"',
+        'command: "python3 calibration_z.py --profile {{profile}}"',
+        "args:",
+        '  - name: "profile"',
+        "    required: true",
+        '    prompt: "Which profile should I use for Calibration Z?"',
+        "---",
+        "",
+        "# Calibration Z",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(rootDir, "pages", "systems", "system-a.md"),
+      [
+        "---",
+        'name: "System A"',
+        'host: "192.0.2.10"',
+        'username: "root"',
+        "---",
+        "",
+        "# System A",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const missingArgs = await callHandler<{
+      execution_target: string;
+      missing_args: Array<{ name: string }>;
+      preflight: Array<{ check: { kind: string; path: string | null; path_template: string } }>;
+      ready_to_dispatch: boolean;
+    }>(tools, "catalog_resolve_run", {
+      test_query: "test z",
+      system_query: "system a",
+    });
+
+    expect(missingArgs.execution_target).toBe("ssh");
+    expect(missingArgs.ready_to_dispatch).toBe(false);
+    expect(missingArgs.missing_args).toEqual([expect.objectContaining({ name: "profile" })]);
+    expect(missingArgs.preflight).toEqual([
+      expect.objectContaining({
+        check: expect.objectContaining({
+          kind: "file_exists",
+          path: null,
+          path_template: "/srv/app/calibration/{{profile}}.json",
+        }),
+      }),
+    ]);
+
+    const resolved = await callHandler<{
+      command: string | null;
+      preflight: Array<{
+        name: string;
+        check: { kind: string; path: string | null; path_template: string };
+        if_exists: { ask: string; run_test: string };
+        if_missing: { ask: string; run_test: string };
+        before_test_ask: string | null;
+      }>;
+      ready_to_dispatch: boolean;
+    }>(tools, "catalog_resolve_run", {
+      test_query: "test z",
+      system_query: "system a",
+      provided_args: { profile: "front" },
+    });
+
+    expect(resolved.ready_to_dispatch).toBe(true);
+    expect(resolved.command).toBe("python3 test_z.py --profile front");
+    expect(resolved.preflight).toEqual([
+      {
+        name: "Calibration",
+        check: {
+          kind: "file_exists",
+          path: "/srv/app/calibration/front.json",
+          path_template: "/srv/app/calibration/{{profile}}.json",
+        },
+        if_exists: {
+          ask: "Calibration file exists. Re-run calibration before Test Z?",
+          run_test: "Calibration Z",
+        },
+        if_missing: {
+          ask: "No calibration file found. Run calibration before Test Z?",
+          run_test: "Calibration Z",
+        },
+        before_test_ask: "Calibration is complete or skipped. Run Test Z now?",
+      },
+    ]);
+  });
+
   it("wiki_write creates markdown files and requires overwrite=true to replace", async () => {
     const confirmations = new ConfirmationStore();
     confirmations.subscribe(() => {

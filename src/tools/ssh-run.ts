@@ -46,6 +46,21 @@ const killSchema = z.object({
   signal: z.enum(["TERM", "KILL"]).optional(),
 });
 
+const checkFileSchema = z.object({
+  host: z.string().min(1).describe("Remote host to SSH into."),
+  username: z.string().min(1).describe("SSH username."),
+  credential_id: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Optional credential identifier. If provided, the TUI prompts for a password when it is not yet cached. Omit this field to connect without a password when SSH agent auth is enabled.",
+    ),
+  port: z.number().int().positive().max(65535).optional(),
+  cwd: z.string().optional().describe("Optional remote working directory for resolving relative paths."),
+  path: z.string().min(1).describe("Remote file path to check. Relative paths are resolved from cwd when provided."),
+});
+
 export interface SshToolsOptions {
   sshClient: SshClient;
   credentials: CredentialStore;
@@ -328,7 +343,74 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
     },
   });
 
-  return [dispatchTool, pollTool, killTool, reattachTool];
+  const checkFileTool = defineTool("ssh_check_file", {
+    description:
+      "Check whether a regular file exists on a remote host over SSH. Use this for read-only preflight checks like calibration files.",
+    parameters: checkFileSchema,
+    handler: async (args) => {
+      const credentialId = args.credential_id ?? `${args.username}@${args.host}`;
+      const connectResult = await connectWithAuthRetry({
+        sshClient: options.sshClient,
+        credentials: options.credentials,
+        useAgentAuth: options.useAgentAuth === true,
+        ...(options.readyTimeoutMs !== undefined ? { readyTimeoutMs: options.readyTimeoutMs } : {}),
+        host: args.host,
+        port: args.port ?? DEFAULT_PORT,
+        username: args.username,
+        credentialId,
+      });
+      if ("error" in connectResult) {
+        return {
+          error: connectResult.error,
+          message: connectResult.message,
+          host: args.host,
+          username: args.username,
+          path: args.path,
+        };
+      }
+
+      const session = connectResult.session;
+      try {
+        const result = await session.exec(buildCheckFileScript(args.path, args.cwd));
+        if (result.exitCode !== 0) {
+          return {
+            error: "check_failed",
+            host: args.host,
+            username: args.username,
+            path: args.path,
+            cwd: args.cwd ?? null,
+            exit_code: result.exitCode,
+            message: result.stderr.trim() || "remote file check failed",
+          };
+        }
+        const exists = /__AURA_FILE_EXISTS__=1/.test(result.stdout);
+        return {
+          host: args.host,
+          username: args.username,
+          path: args.path,
+          cwd: args.cwd ?? null,
+          exists,
+        };
+      } catch (err: unknown) {
+        return {
+          error: "check_failed",
+          host: args.host,
+          username: args.username,
+          path: args.path,
+          cwd: args.cwd ?? null,
+          message: err instanceof Error ? err.message : String(err),
+        };
+      } finally {
+        try {
+          await session.close();
+        } catch {
+          /* best effort */
+        }
+      }
+    },
+  });
+
+  return [dispatchTool, pollTool, killTool, reattachTool, checkFileTool];
 }
 
 async function runPoller(
@@ -447,6 +529,13 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildCheckFileScript(filePath: string, cwd?: string): string {
+  const commands = [];
+  if (cwd) commands.push(`cd ${shQuote(cwd)}`);
+  commands.push(`if [ -f ${shQuote(filePath)} ]; then printf '__AURA_FILE_EXISTS__=1\\n'; else printf '__AURA_FILE_EXISTS__=0\\n'; fi`);
+  return `sh -lc ${shQuote(commands.join(" && "))}`;
+}
+
 function isAuthError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return /auth|permission denied|access denied/i.test(message);
@@ -514,4 +603,8 @@ async function connectWithAuthRetry(args: ConnectWithAuthRetryArgs): Promise<Con
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function shQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\"'\"'`)}'`;
 }
