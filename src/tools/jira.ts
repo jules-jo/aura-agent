@@ -107,6 +107,15 @@ export function jiraTools(options: JiraToolsOptions): Tool<any>[] {
   return [createIssueTool];
 }
 
+export function jiraConfigFromEnv(env: NodeJS.ProcessEnv): JiraConfig {
+  const token = env.AURA_JIRA_TOKEN ?? env.AURA_JIRA_PAT;
+  return {
+    ...(env.AURA_JIRA_BASE_URL !== undefined ? { baseUrl: env.AURA_JIRA_BASE_URL } : {}),
+    ...(token !== undefined ? { token } : {}),
+    ...(env.AURA_JIRA_DEFAULT_PROJECT !== undefined ? { defaultProject: env.AURA_JIRA_DEFAULT_PROJECT } : {}),
+  };
+}
+
 function normalizeConfig(config: JiraConfig):
   | { baseUrl: string; token: string; defaultProject?: string }
   | { error: "missing_config"; missing: string[]; message: string } {
@@ -114,7 +123,7 @@ function normalizeConfig(config: JiraConfig):
   const token = config.token;
   const missing: string[] = [];
   if (!baseUrl) missing.push("AURA_JIRA_BASE_URL");
-  if (!token) missing.push("AURA_JIRA_TOKEN");
+  if (!token) missing.push("AURA_JIRA_TOKEN or AURA_JIRA_PAT");
   if (!baseUrl || !token) {
     return {
       error: "missing_config",

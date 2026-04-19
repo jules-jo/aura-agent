@@ -6,6 +6,7 @@ vi.mock("@github/copilot-sdk", () => ({
 
 const { ConfirmationStore } = await import("../src/ssh/confirmation-store.js");
 const { jiraTools } = await import("../src/tools/jira.js");
+const { jiraConfigFromEnv } = await import("../src/tools/jira.js");
 
 function autoConfirm(approved: boolean): InstanceType<typeof ConfirmationStore> {
   const store = new ConfirmationStore();
@@ -27,6 +28,32 @@ function callHandler<T = unknown>(
 }
 
 describe("jira tools", () => {
+  it("jiraConfigFromEnv accepts AURA_JIRA_PAT as an alias for AURA_JIRA_TOKEN", () => {
+    expect(
+      jiraConfigFromEnv({
+        AURA_JIRA_BASE_URL: "https://jira.example",
+        AURA_JIRA_PAT: "pat-token",
+        AURA_JIRA_DEFAULT_PROJECT: "PROJ",
+      }),
+    ).toEqual({
+      baseUrl: "https://jira.example",
+      token: "pat-token",
+      defaultProject: "PROJ",
+    });
+  });
+
+  it("jiraConfigFromEnv prefers AURA_JIRA_TOKEN when both token names are set", () => {
+    expect(
+      jiraConfigFromEnv({
+        AURA_JIRA_BASE_URL: "https://jira.example",
+        AURA_JIRA_TOKEN: "token-value",
+        AURA_JIRA_PAT: "pat-value",
+      }),
+    ).toMatchObject({
+      token: "token-value",
+    });
+  });
+
   it("jira_create_issue posts a Jira issue after confirmation", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ key: "PROJ-123", self: "https://jira.example/rest/api/2/issue/10001" }), {
@@ -88,7 +115,7 @@ describe("jira tools", () => {
     });
 
     expect(result.error).toBe("missing_config");
-    expect(result.missing).toEqual(["AURA_JIRA_BASE_URL", "AURA_JIRA_TOKEN"]);
+    expect(result.missing).toEqual(["AURA_JIRA_BASE_URL", "AURA_JIRA_TOKEN or AURA_JIRA_PAT"]);
     expect(confirmations.getPending()).toHaveLength(0);
   });
 

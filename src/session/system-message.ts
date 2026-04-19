@@ -81,6 +81,8 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   creates a Jira issue using the configured company Jira PAT. The TUI confirms
   every Jira create. If the tool returns missing_config, tell the user which
   environment variables to set.
+  Jira auth accepts AURA_JIRA_TOKEN or AURA_JIRA_PAT; either can contain the
+  Jira personal access token.
   Use this only when the user asks to file/create a Jira or explicitly agrees
   after you offer. Do not create Jira issues automatically.
 
