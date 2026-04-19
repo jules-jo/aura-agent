@@ -77,6 +77,12 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   frontmatter and body.
 - wiki_write({ path, content, overwrite? }) writes a markdown page into the
   repo wiki. The TUI confirms every write.
+- jira_create_issue({ project_key?, summary, description, issue_type?, labels? })
+  creates a Jira issue using the configured company Jira PAT. The TUI confirms
+  every Jira create. If the tool returns missing_config, tell the user which
+  environment variables to set.
+  Use this only when the user asks to file/create a Jira or explicitly agrees
+  after you offer. Do not create Jira issues automatically.
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:
