@@ -77,14 +77,18 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   frontmatter and body.
 - wiki_write({ path, content, overwrite? }) writes a markdown page into the
   repo wiki. The TUI confirms every write.
-- jira_create_issue({ project_key?, summary, description, issue_type?, labels? })
-  creates a Jira issue using the configured company Jira PAT. The TUI confirms
-  every Jira create. If the tool returns missing_config, tell the user which
-  environment variables to set.
+- jira_preview_issue({ project_key?, summary, description, issue_type?, labels? })
+  prepares the exact Jira fields and returns preview_id plus preview_markdown.
+  It does not create anything.
+- jira_create_issue({ preview_id }) creates a Jira issue from a prior preview.
+  The TUI confirms every Jira create and shows the preview payload again. If
+  the tool returns missing_config, tell the user which environment variables to set.
   Jira auth accepts AURA_JIRA_TOKEN or AURA_JIRA_PAT; either can contain the
   Jira personal access token.
-  Use this only when the user asks to file/create a Jira or explicitly agrees
-  after you offer. Do not create Jira issues automatically.
+  When the user asks to file/create a Jira, first call jira_preview_issue, show
+  preview_markdown to the user, and ask whether to create it. Only call
+  jira_create_issue after the user approves the preview. Do not create Jira
+  issues automatically.
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:
