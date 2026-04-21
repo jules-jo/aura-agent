@@ -30,12 +30,13 @@ export function startRunCompletionNotifier(
 async function sendCompletionNotification(run: Run, options: RunCompletionNotifierOptions): Promise<void> {
   const status = run.status === "completed" ? "passed" : "failed";
   const durationSeconds = computeDurationSeconds(run);
+  const summary = summarizeRun(run, status);
   await sendTeamsNotification({
     config: options.teams,
     ...(options.fetchImpl !== undefined ? { fetchImpl: options.fetchImpl } : {}),
     notification: {
-      title: `Aura test ${status}: ${shortCommand(run.command)}`,
-      text: summarizeRun(run, status),
+      title: summary.title,
+      text: summary.text,
       status,
       facts: [
         { name: "command", value: run.command },
@@ -48,14 +49,60 @@ async function sendCompletionNotification(run: Run, options: RunCompletionNotifi
   });
 }
 
-function summarizeRun(run: Run, status: "passed" | "failed"): string {
-  if (run.error) return `${run.command} ${status}: ${run.error}`;
-  if (run.exitCode !== undefined) return `${run.command} ${status} with exit code ${run.exitCode}.`;
-  return `${run.command} ${status} with unknown exit code.`;
+function summarizeRun(run: Run, status: "passed" | "failed"): { title: string; text: string } {
+  if (run.error) {
+    const error = cleanLine(run.error);
+    return {
+      title: `Aura test ${status}: ${truncateOneLine(error, 90)}`,
+      text: `Run failed: ${error}`,
+    };
+  }
+
+  const output = summarizeOutput(run);
+  if (output) {
+    return {
+      title: `Aura test ${status}: ${truncateOneLine(output.title, 90)}`,
+      text: [`Test ${status}.`, "", "Output summary:", ...output.lines].join("\n"),
+    };
+  }
+
+  const exitText =
+    run.exitCode !== undefined
+      ? `Test ${status} with exit code ${run.exitCode}.`
+      : `Test ${status} with unknown exit code.`;
+  return {
+    title: `Aura test ${status}`,
+    text: exitText,
+  };
 }
 
-function shortCommand(command: string): string {
-  return command.length <= 80 ? command : `${command.slice(0, 77)}...`;
+function summarizeOutput(run: Run): { title: string; lines: string[] } | null {
+  const lines = run.iterations
+    .flatMap((iteration) => iteration.lines)
+    .map(cleanLine)
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return null;
+
+  const tail = lines.slice(-8);
+  const title =
+    [...tail]
+      .reverse()
+      .find((line) => /\b(passed|failed|failures?|errors?|tests?|test files|success|completed)\b/i.test(line)) ??
+    tail.at(-1) ??
+    "completed";
+  return {
+    title,
+    lines: tail.map((line) => truncateOneLine(line, 240)),
+  };
+}
+
+function cleanLine(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*m/g, "").trim().replace(/\s{2,}/g, " ");
+}
+
+function truncateOneLine(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
 }
 
 function computeDurationSeconds(run: Run): number | null {

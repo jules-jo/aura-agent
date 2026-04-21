@@ -7,6 +7,17 @@ describe("phase3SystemMessageForMode", () => {
     expect(phase3SystemMessageForMode().content).not.toContain("AGENTIC MODE is enabled");
   });
 
+  it("includes failure-report policy and Jira preview requirements", () => {
+    const message = phase3SystemMessageForMode().content;
+
+    expect(message).toContain("Failure-report policy");
+    expect(message).toContain("ask the user whether they want you to draft a Jira");
+    expect(message).toContain("Do not create a Jira automatically");
+    expect(message).toContain("call jira_preview_issue");
+    expect(message).toContain("Only call jira_create_issue after the user explicitly approves the preview");
+    expect(message).toContain("Do not ask to file Jira for successful runs");
+  });
+
   it("adds agentic execution and preflight policy when enabled", () => {
     const message = phase3SystemMessageForMode({ agenticMode: true }).content;
 
@@ -20,6 +31,9 @@ describe("phase3SystemMessageForMode", () => {
     expect(message).toContain("do NOT ask preflight.if_missing.ask");
     expect(message).toContain("If the preflight file exists");
     expect(message).toContain("ask preflight.if_exists.ask");
+    expect(message).toContain("do not interrupt the remaining ready rows to");
+    expect(message).toContain("ask once whether the user wants");
+    expect(message).toContain("Jira drafts for the failed rows");
   });
 
   it("adds default spreadsheet configuration when provided", () => {

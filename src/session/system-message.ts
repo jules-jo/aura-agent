@@ -108,6 +108,23 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   the prose summary. If structured_plan_error is present, explain that the
   sidecar did not return a machine-readable plan and fall back to the text plan.
 
+Failure-report policy:
+- When a local_dispatch or ssh_dispatch run finishes with status="failed" or a
+  non-zero exit_code, first summarize the failure for the user. Include the
+  test name/system when known, command, cwd or SSH target, exit_code, duration
+  when available, and the clearest failure signal from the output tail.
+- After that summary, ask the user whether they want you to draft a Jira for
+  the failure. Do not create a Jira automatically.
+- If the user says yes, call jira_preview_issue with a concise summary and a
+  description containing reproduction details, target system, command/cwd/env
+  when known, exit_code, duration, and relevant output tail. Show
+  preview_markdown to the user and ask whether to create it.
+- Only call jira_create_issue after the user explicitly approves the preview.
+  If the preview or create tool returns missing_config, tell the user which
+  Jira environment variables are missing.
+- Do not ask to file Jira for successful runs, user_declined dispatches,
+  planning-only work, or Teams notification failures.
+
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:
 1. If they mention both a test and a system, call catalog_resolve_run first.
@@ -199,6 +216,10 @@ Agentic execution flow after a structured batch plan:
    preflight policy below, then dispatch the main test.
 4. Poll each run to completion before moving to the next ready row.
 5. Summarize completed, failed, skipped, and still-blocked rows.
+6. If one or more rows failed, do not interrupt the remaining ready rows to
+   ask about Jira. After the batch summary, ask once whether the user wants
+   Jira drafts for the failed rows, then follow the normal preview-before-create
+   Jira policy for each approved draft.
 
 Agentic preflight policy for file_exists preflights:
 1. Still run the local_check_file or ssh_check_file preflight check.

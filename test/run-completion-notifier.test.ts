@@ -29,6 +29,11 @@ describe("RunCompletionNotifier", () => {
     });
 
     const run = store.createRun({ command: "npm test", cwd: "/repo" });
+    store.appendLines(run.id, [
+      " Test Files  23 passed (23)",
+      "      Tests  144 passed (144)",
+      "   Duration  1.09s",
+    ]);
     store.completeRun(run.id, 0);
     await flushMicrotasks();
     store.appendLines(run.id, ["ignored after completion"]);
@@ -38,9 +43,16 @@ describe("RunCompletionNotifier", () => {
     expect(recorder.calls()).toHaveLength(1);
     expect(recorder.calls()[0]?.url).toBe("https://teams.example/webhook");
     expect(recorder.calls()[0]?.body).toMatchObject({
-      title: "Aura test passed: npm test",
-      text: "npm test passed with exit code 0.",
+      title: "Aura test passed: Tests 144 passed (144)",
+      text: "Test passed.\n\nOutput summary:\nTest Files 23 passed (23)\nTests 144 passed (144)\nDuration 1.09s",
       themeColor: "2EB886",
+    });
+    expect(recorder.calls()[0]?.body).toMatchObject({
+      sections: [
+        {
+          facts: expect.arrayContaining([{ name: "command", value: "npm test" }]),
+        },
+      ],
     });
   });
 
@@ -59,9 +71,29 @@ describe("RunCompletionNotifier", () => {
 
     expect(recorder.calls()).toHaveLength(1);
     expect(recorder.calls()[0]?.body).toMatchObject({
-      title: "Aura test failed: pytest",
-      text: "pytest failed: assertion failed",
+      title: "Aura test failed: assertion failed",
+      text: "Run failed: assertion failed",
       themeColor: "D13438",
+    });
+  });
+
+  it("falls back to status text when there is no captured output", async () => {
+    const store = new RunStore();
+    const recorder = makeFetchRecorder();
+    const notifier = startRunCompletionNotifier(store, {
+      fetchImpl: recorder.fetchImpl,
+      teams: { webhookUrl: "https://teams.example/webhook" },
+    });
+
+    const run = store.createRun({ command: "quiet-test", cwd: "/repo" });
+    store.completeRun(run.id, 0);
+    await flushMicrotasks();
+    notifier.close();
+
+    expect(recorder.calls()).toHaveLength(1);
+    expect(recorder.calls()[0]?.body).toMatchObject({
+      title: "Aura test passed",
+      text: "Test passed with exit code 0.",
     });
   });
 
