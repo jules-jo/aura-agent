@@ -7,7 +7,7 @@ vi.mock("@github/copilot-sdk", () => ({
   defineTool: (name: string, config: Record<string, unknown>) => ({ name, ...config }),
 }));
 
-const { wikiTools } = await import("../src/tools/wiki.js");
+const { wikiReadOnlyTools, wikiTools } = await import("../src/tools/wiki.js");
 const { ConfirmationStore } = await import("../src/ssh/confirmation-store.js");
 
 function callHandler<T = unknown>(
@@ -32,6 +32,19 @@ describe("wiki tools", () => {
 
   afterEach(async () => {
     await fs.rm(rootDir, { recursive: true, force: true });
+  });
+
+  it("wikiReadOnlyTools exposes only read and catalog tools", () => {
+    const names = wikiReadOnlyTools({ rootDir }).map((tool) => tool.name);
+
+    expect(names).toEqual([
+      "wiki_read",
+      "catalog_lookup_test",
+      "catalog_lookup_system",
+      "catalog_resolve_run",
+    ]);
+    expect(names).not.toContain("wiki_write");
+    expect(names).not.toContain("catalog_draft_test_spec");
   });
 
   it("wiki_read returns frontmatter, title, and body for a wiki page", async () => {

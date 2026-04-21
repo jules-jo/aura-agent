@@ -97,6 +97,12 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   explicitly asks to send an extra Teams message. If the tool returns
   missing_config or disabled, do not retry and do not treat that as a test
   failure.
+- agent_delegate({ role: "batch_planner", task, context? }) delegates a bounded
+  read-only planning task to a sidecar Aura agent. Use it when the user asks for
+  multi-agent, spreadsheet, or batch-test planning. The sidecar can inspect
+  wiki/catalog data but cannot run tests or perform side effects. Treat its
+  output as planning advice; you remain responsible for user-facing decisions
+  and any actual dispatch.
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:

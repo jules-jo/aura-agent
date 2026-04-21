@@ -4,11 +4,13 @@ import { render } from "ink";
 import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
 import { phase3SystemMessage } from "./session/system-message.js";
+import { CopilotAgentManager } from "./agents/agent-manager.js";
 import { RunStore } from "./runs/run-store.js";
 import { startRunCompletionNotifier } from "./runs/run-completion-notifier.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
-import { wikiTools } from "./tools/wiki.js";
+import { agentTools } from "./tools/agents.js";
+import { wikiReadOnlyTools, wikiTools } from "./tools/wiki.js";
 import { jiraConfigFromEnv, jiraTools } from "./tools/jira.js";
 import { teamsConfigFromEnv, teamsTools } from "./tools/teams.js";
 import { CredentialStore } from "./ssh/credential-store.js";
@@ -34,7 +36,17 @@ async function main(): Promise<void> {
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
   const teamsConfig = teamsConfigFromEnv(process.env);
   const runCompletionNotifier = startRunCompletionNotifier(runStore, { teams: teamsConfig });
+  const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
+  const agentManager = new CopilotAgentManager({
+    logLevel: "none",
+    toolsByRole: {
+      batch_planner: wikiReadOnlyTools({ rootDir: process.cwd() }),
+    },
+    ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
+    ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
+  });
   const tools = [
+    ...agentTools(agentManager),
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
     ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
     ...wikiTools({ rootDir: process.cwd(), confirmations }),
@@ -46,7 +58,6 @@ async function main(): Promise<void> {
       config: teamsConfig,
     }),
   ];
-  const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
   const session = await startSession({
     logLevel: "none",
     tools,
@@ -67,6 +78,7 @@ async function main(): Promise<void> {
     await waitUntilExit();
   } finally {
     runCompletionNotifier.close();
+    await agentManager.close();
     await session.close();
   }
 }

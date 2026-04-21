@@ -198,6 +198,9 @@ fully unattended operation without the Phase 5 permission policy.
 only after the single-agent planner is stable.
 
 Ships:
+- Initial scaffold: `agent_delegate` can call a read-only `batch_planner`
+  sidecar agent for spreadsheet/batch-test planning. This is intentionally
+  planning-only; it cannot dispatch tests or perform side effects.
 - One coordinator/planner agent that owns change intake, test selection, run
   deduplication, and final user-facing decisions.
 - One or more runner agents that execute approved tests, ideally scoped by

@@ -65,6 +65,30 @@ export interface WikiToolsOptions {
 }
 
 export function wikiTools(options: WikiToolsOptions): Tool<any>[] {
+  const tools = buildWikiToolSet(options);
+  return [
+    tools.wikiReadTool,
+    tools.catalogLookupTool,
+    tools.systemLookupTool,
+    tools.resolveRunTool,
+    tools.wikiWriteTool,
+    tools.draftTestSpecTool,
+  ];
+}
+
+export function wikiReadOnlyTools(options: WikiToolsOptions): Tool<any>[] {
+  const tools = buildWikiToolSet(options);
+  return [tools.wikiReadTool, tools.catalogLookupTool, tools.systemLookupTool, tools.resolveRunTool];
+}
+
+function buildWikiToolSet(options: WikiToolsOptions): {
+  wikiReadTool: Tool<any>;
+  catalogLookupTool: Tool<any>;
+  systemLookupTool: Tool<any>;
+  resolveRunTool: Tool<any>;
+  wikiWriteTool: Tool<any>;
+  draftTestSpecTool: Tool<any>;
+} {
   const wikiReadTool = defineTool("wiki_read", {
     description: "Read a markdown page from the project wiki and return its frontmatter, title, and body.",
     parameters: wikiReadSchema,
@@ -202,7 +226,14 @@ export function wikiTools(options: WikiToolsOptions): Tool<any>[] {
     },
   });
 
-  return [wikiReadTool, catalogLookupTool, systemLookupTool, resolveRunTool, wikiWriteTool, draftTestSpecTool];
+  return {
+    wikiReadTool,
+    catalogLookupTool,
+    systemLookupTool,
+    resolveRunTool,
+    wikiWriteTool,
+    draftTestSpecTool,
+  };
 }
 
 function classifyReadError(err: unknown): "invalid_path" | "not_found" | "read_failed" {
