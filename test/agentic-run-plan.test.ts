@@ -8,6 +8,7 @@ vi.mock("@github/copilot-sdk", () => ({
 }));
 
 const { ConfirmationStore } = await import("../src/ssh/confirmation-store.js");
+const { AgentTraceStore } = await import("../src/agents/agent-trace-store.js");
 const { RunStore } = await import("../src/runs/run-store.js");
 const { localRunTools } = await import("../src/tools/local-run.js");
 const { agenticRunPlanTools } = await import("../src/tools/agentic-run-plan.js");
@@ -252,7 +253,74 @@ describe("agentic run plan tools", () => {
     });
   });
 
-  function makeTools(spawner: Spawner): ReturnType<typeof agenticRunPlanTools> {
+  it("emits progress traces and returns failure report details for failed rows", async () => {
+    await writeTestPage(
+      "failing-test.md",
+      [
+        "---",
+        'name: "Failing Test"',
+        "host: localhost",
+        'command: "run-failing-test"',
+        "---",
+        "# Failing Test",
+      ].join("\n"),
+    );
+    await fs.writeFile(path.join(rootDir, "plan.csv"), "test_name\nFailing Test\n", "utf8");
+    const traces = new AgentTraceStore();
+    const tools = makeTools(() => {
+      const fake = makeFakeChild();
+      setImmediate(() => {
+        fake.emitStdout("AssertionError: expected ok\nTests 1 failed (1)\n");
+        fake.close(1);
+      });
+      return fake.child;
+    }, traces);
+
+    const result = await callHandler<{
+      totals: { failed: number };
+      failure_report: {
+        needed: boolean;
+        rows: Array<{ test_name: string; exit_code: number; output_tail: string[] }>;
+      };
+      rows: Array<{ status: string; output_tail: string[] }>;
+    }>(tools, "agentic_run_plan", {
+      spreadsheet_path: "plan.csv",
+      ready: [
+        {
+          row_number: 2,
+          test_name: "Failing Test",
+        },
+      ],
+      poll_wait_ms: 0,
+    });
+
+    expect(result.totals.failed).toBe(1);
+    expect(result.rows[0]).toMatchObject({
+      status: "failed",
+      output_tail: ["AssertionError: expected ok", "Tests 1 failed (1)"],
+    });
+    expect(result.failure_report).toMatchObject({
+      needed: true,
+      rows: [
+        {
+          test_name: "Failing Test",
+          exit_code: 1,
+          output_tail: ["AssertionError: expected ok", "Tests 1 failed (1)"],
+        },
+      ],
+    });
+    expect(traces.getEvents().map((event) => event.message)).toEqual(
+      expect.arrayContaining([
+        "Starting agentic batch execution for 1 ready row(s).",
+        "Running row 2: Failing Test.",
+        expect.stringContaining("Dispatched Failing Test as run"),
+        expect.stringContaining("Failing Test failed: failed (exit 1): Tests 1 failed (1)."),
+        "Agentic batch finished: 0 success, 1 failed, 0 skipped, 0 blocked.",
+      ]),
+    );
+  });
+
+  function makeTools(spawner: Spawner, traces?: InstanceType<typeof AgentTraceStore>): ReturnType<typeof agenticRunPlanTools> {
     const runStore = new RunStore();
     const confirmations = new ConfirmationStore({ bypass: true });
     const localTools = localRunTools(runStore, { defaultCwd: rootDir, spawner });
@@ -261,6 +329,7 @@ describe("agentic run plan tools", () => {
       confirmations,
       localTools,
       sshTools: [],
+      ...(traces !== undefined ? { traces } : {}),
     });
   }
 

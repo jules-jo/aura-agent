@@ -12,13 +12,24 @@ export interface CredentialRequest {
   username: string;
 }
 
+export type CredentialResolver = (req: CredentialRequest) => string | undefined;
+
+export interface CredentialStoreOptions {
+  resolvePassword?: CredentialResolver;
+}
+
 type Listener = (pending: readonly PendingPrompt[]) => void;
 
 export class CredentialStore {
   private readonly passwords = new Map<string, string>();
   private readonly pending: PendingPrompt[] = [];
   private readonly listeners = new Set<Listener>();
+  private readonly resolvePassword: CredentialResolver;
   private snapshot: readonly PendingPrompt[] = [];
+
+  constructor(options: CredentialStoreOptions = {}) {
+    this.resolvePassword = options.resolvePassword ?? (() => undefined);
+  }
 
   set(credentialId: string, password: string): void {
     this.passwords.set(credentialId, password);
@@ -44,6 +55,11 @@ export class CredentialStore {
   async request(req: CredentialRequest): Promise<string> {
     const cached = this.passwords.get(req.credentialId);
     if (cached !== undefined) return cached;
+    const resolved = this.resolvePassword(req);
+    if (resolved !== undefined) {
+      this.passwords.set(req.credentialId, resolved);
+      return resolved;
+    }
     return new Promise<string>((resolve, reject) => {
       const entry: PendingPrompt = {
         credentialId: req.credentialId,
@@ -89,4 +105,31 @@ export class CredentialStore {
     this.snapshot = this.pending.slice();
     for (const listener of this.listeners) listener(this.snapshot);
   }
+}
+
+export function sshPasswordResolverFromEnv(env: NodeJS.ProcessEnv): CredentialResolver {
+  return (req) => {
+    return (
+      readOptionalEnv(env, `AURA_SSH_PASSWORD_${envSuffix(req.credentialId)}`) ??
+      readOptionalEnv(env, `AURA_SSH_PASSWORD_${envSuffix(`${req.username}@${req.host}`)}`) ??
+      readOptionalEnv(env, "AURA_SSH_PASSWORD")
+    );
+  };
+}
+
+export function sshPasswordEnvSuffix(value: string): string {
+  return envSuffix(value);
+}
+
+function readOptionalEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const value = env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function envSuffix(value: string): string {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }

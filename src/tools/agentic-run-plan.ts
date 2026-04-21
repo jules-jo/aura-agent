@@ -4,6 +4,7 @@ import type { Tool } from "@github/copilot-sdk";
 import { listSystemPages, listTestPages } from "../wiki/pages.js";
 import { resolveRunSpec, type CatalogPreflightStep, type ResolvedRunSpec } from "../wiki/catalog.js";
 import type { ConfirmationStore } from "../ssh/confirmation-store.js";
+import type { AgentTraceStore } from "../agents/agent-trace-store.js";
 import { writeSpreadsheetUpdates, type SpreadsheetCellValue } from "./spreadsheet.js";
 
 const readyRowSchema = z
@@ -64,6 +65,7 @@ export interface AgenticRunPlanToolsOptions {
   confirmations: ConfirmationStore;
   localTools: Tool<any>[];
   sshTools: Tool<any>[];
+  traces?: AgentTraceStore;
   now?: () => Date;
 }
 
@@ -78,6 +80,7 @@ interface RowResult {
   exit_code: number | null;
   completed_at: string;
   summary: string;
+  output_tail: string[];
   spreadsheet_updated: boolean;
   spreadsheet_error?: string;
   preflight: PreflightResult[];
@@ -205,6 +208,7 @@ async function runPlan(
     listSystemPages(options.rootDir),
   ]);
   const rows: RowResult[] = [];
+  trace(options, `Starting agentic batch execution for ${input.ready.length} ready row(s).`);
 
   for (const row of input.ready) {
     const result = await executeRow(options, {
@@ -227,6 +231,8 @@ async function runPlan(
   }
 
   const completedAt = options.now?.().toISOString() ?? new Date().toISOString();
+  const failedRows = rows.filter((row) => row.status === "failed");
+  trace(options, formatBatchFinishedMessage(rows));
   return {
     started_at: startedAt,
     completed_at: completedAt,
@@ -243,6 +249,21 @@ async function runPlan(
       failed: rows.filter((row) => row.status === "failed").length,
       skipped: rows.filter((row) => row.status === "skipped").length,
       blocked: rows.filter((row) => row.status === "blocked").length,
+    },
+    failure_report: {
+      needed: failedRows.length > 0,
+      instruction: failedRows.length > 0
+        ? "Summarize these failed rows to the user and ask whether to draft Jira issues. Do not create Jira issues without preview approval."
+        : null,
+      rows: failedRows.map((row) => ({
+        row_number: row.row_number,
+        test_name: row.test_name,
+        system_name: row.system_name,
+        run_id: row.run_id,
+        exit_code: row.exit_code,
+        summary: row.summary,
+        output_tail: row.output_tail,
+      })),
     },
     rows,
   };
@@ -277,6 +298,7 @@ async function executeRow(
     );
   }
 
+  trace(options, `Running row ${formatRowNumber(input.row.row_number)}: ${formatSpecLabel(resolved)}.`);
   const preflight: PreflightResult[] = [];
   for (const step of resolved.preflight) {
     const preflightResult = await executePreflight(options, {
@@ -297,6 +319,7 @@ async function executeRow(
         exit_code: null,
         completed_at: skippedAt,
         summary: `Skipped ${resolved.test_name}: ${preflightResult.summary}`,
+        output_tail: [],
         spreadsheet_updated: false,
         preflight,
       };
@@ -316,6 +339,7 @@ async function executeRow(
     exit_code: dispatch.exitCode,
     completed_at: dispatch.completedAt,
     summary: dispatch.summary,
+    output_tail: tailLines(dispatch.lines),
     spreadsheet_updated: false,
     preflight,
   };
@@ -341,6 +365,7 @@ async function executePreflight(
     };
   }
 
+  trace(options, `Checking preflight '${input.step.name}' for ${formatSpecLabel(input.mainSpec)}.`);
   const check = await checkPreflightFile(options, input.mainSpec, input.step.check.path);
   if ("error" in check) {
     return {
@@ -355,6 +380,7 @@ async function executePreflight(
 
   const action = check.exists ? input.step.if_exists : input.step.if_missing;
   if (check.exists) {
+    trace(options, `Preflight file exists for ${formatSpecLabel(input.mainSpec)}; asking whether to rerun ${action.run_test}.`);
     const approved = await options.confirmations.request({
       kind: "agentic_preflight",
       summary: `rerun ${action.run_test}?`,
@@ -370,6 +396,9 @@ async function executePreflight(
         summary: `Skipped ${action.run_test}; existing preflight file was accepted.`,
       };
     }
+  }
+  if (!check.exists) {
+    trace(options, `Preflight file is missing for ${formatSpecLabel(input.mainSpec)}; running ${action.run_test}.`);
   }
 
   const resolved = resolveRunSpec(await listTestPages(options.rootDir), await listSystemPages(options.rootDir), {
@@ -462,16 +491,18 @@ async function dispatchAndWait(
     };
   }
 
+  trace(options, `Dispatched ${formatSpecLabel(spec)} as run ${dispatch.run_id}; polling status.`);
   return pollUntilComplete(options, {
     runId: dispatch.run_id,
     target: spec.execution_target,
+    label: formatSpecLabel(spec),
     pollWaitMs: input.pollWaitMs,
   });
 }
 
 async function pollUntilComplete(
   options: AgenticRunPlanToolsOptions,
-  input: { runId: string; target: "local" | "ssh"; pollWaitMs: number },
+  input: { runId: string; target: "local" | "ssh"; label: string; pollWaitMs: number },
 ): Promise<DispatchResult> {
   let sinceIteration = 0;
   const lines: string[] = [];
@@ -489,6 +520,7 @@ async function pollUntilComplete(
       wait_ms: input.pollWaitMs,
     });
     if (poll.error) {
+      trace(options, `${input.label} polling failed: ${poll.error}.`);
       return {
         status: "failed",
         runId: input.runId,
@@ -502,14 +534,19 @@ async function pollUntilComplete(
       lines.push(...iteration.lines);
     }
     sinceIteration = poll.total_iterations ?? sinceIteration;
+    if (poll.status === "running") {
+      trace(options, `${input.label} is still running (${lines.length} output line(s), ${sinceIteration} poll iteration(s)).`);
+    }
     if (poll.status !== "running") {
       const status = poll.status === "completed" ? "success" : "failed";
+      const summary = summarizeRun(status, poll.exit_code ?? null, lines);
+      trace(options, `${input.label} ${status === "success" ? "succeeded" : "failed"}: ${summary}.`);
       return {
         status,
         runId: input.runId,
         exitCode: poll.exit_code ?? null,
         completedAt: poll.completed_at ?? options.now?.().toISOString() ?? new Date().toISOString(),
-        summary: summarizeRun(status, poll.exit_code ?? null, lines),
+        summary,
         lines,
       };
     }
@@ -584,6 +621,7 @@ function blockedRow(
     exit_code: null,
     completed_at: completedAt,
     summary,
+    output_tail: [],
     spreadsheet_updated: false,
     preflight: [],
   };
@@ -600,12 +638,40 @@ function formatResolutionBlocker(spec: ResolvedRunSpec): string {
 }
 
 function summarizeRun(status: "success" | "failed" | "skipped", exitCode: number | null, lines: readonly string[]): string {
-  const tail = lines.map(cleanLine).filter(Boolean).slice(-8);
+  const tail = tailLines(lines);
   const signal =
     [...tail].reverse().find((line) => /\b(passed|failed|failures?|errors?|tests?|success|completed)\b/i.test(line)) ??
     tail.at(-1);
   const exit = exitCode !== null ? `exit ${exitCode}` : "unknown exit";
   return signal ? `${status} (${exit}): ${signal}` : `${status} (${exit})`;
+}
+
+function tailLines(lines: readonly string[]): string[] {
+  return lines.map(cleanLine).filter(Boolean).slice(-8);
+}
+
+function formatRowNumber(rowNumber: number | null): string {
+  return rowNumber === null ? "(no spreadsheet row)" : String(rowNumber);
+}
+
+function formatSpecLabel(spec: Pick<ResolvedRunSpec, "test_name" | "system_name">): string {
+  return spec.system_name ? `${spec.test_name} on ${spec.system_name}` : spec.test_name;
+}
+
+function formatBatchFinishedMessage(rows: readonly RowResult[]): string {
+  const success = rows.filter((row) => row.status === "success").length;
+  const failed = rows.filter((row) => row.status === "failed").length;
+  const skipped = rows.filter((row) => row.status === "skipped").length;
+  const blocked = rows.filter((row) => row.status === "blocked").length;
+  return `Agentic batch finished: ${success} success, ${failed} failed, ${skipped} skipped, ${blocked} blocked.`;
+}
+
+function trace(options: AgenticRunPlanToolsOptions, message: string): void {
+  options.traces?.record({
+    role: "agentic_run_plan",
+    status: "progress",
+    message,
+  });
 }
 
 function cleanLine(value: string): string {

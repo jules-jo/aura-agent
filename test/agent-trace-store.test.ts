@@ -29,4 +29,15 @@ describe("AgentTraceStore", () => {
 
     expect(failed.message).toBe("batch_planner sidecar agent failed: model unavailable");
   });
+
+  it("supports custom progress messages", () => {
+    const store = new AgentTraceStore();
+    const progress = store.record({
+      role: "agentic_run_plan",
+      status: "progress",
+      message: "Running row 2: Test Z on System A.",
+    });
+
+    expect(progress.message).toBe("Running row 2: Test Z on System A.");
+  });
 });

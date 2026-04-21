@@ -1,4 +1,4 @@
-export type AgentTraceStatus = "started" | "finished" | "failed";
+export type AgentTraceStatus = "started" | "progress" | "finished" | "failed";
 
 export interface AgentTraceEvent {
   id: string;
@@ -12,6 +12,7 @@ export interface AgentTraceInput {
   role: string;
   status: AgentTraceStatus;
   detail?: string;
+  message?: string;
 }
 
 type Listener = (events: readonly AgentTraceEvent[]) => void;
@@ -51,11 +52,15 @@ export class AgentTraceStore {
 }
 
 function formatAgentTraceMessage(input: AgentTraceInput): string {
+  if (input.message) return input.message;
   if (input.status === "started") {
     return `I'm delegating to the ${input.role} sidecar agent.`;
   }
   if (input.status === "finished") {
     return `${input.role} sidecar agent finished.`;
+  }
+  if (input.status === "progress") {
+    return input.detail ? `${input.role}: ${input.detail}` : `${input.role} is running.`;
   }
   return input.detail
     ? `${input.role} sidecar agent failed: ${input.detail}`

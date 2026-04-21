@@ -25,7 +25,7 @@ const dispatchSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Optional credential identifier. If provided, the TUI prompts for a password when it is not yet cached. Omit this field to connect without a password (SSH agent / key-based auth).",
+      "Optional credential identifier. If provided, Aura can load its password from env/cache or prompt when missing. Omit this field to connect without a password (SSH agent / key-based auth).",
     ),
   command: z.string().min(1).describe("Remote shell command to run."),
   port: z.number().int().positive().max(65535).optional(),
@@ -56,7 +56,7 @@ const checkFileSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Optional credential identifier. If provided, the TUI prompts for a password when it is not yet cached. Omit this field to connect without a password when SSH agent auth is enabled.",
+      "Optional credential identifier. If provided, Aura can load its password from env/cache or prompt when missing. Omit this field to connect without a password when SSH agent auth is enabled.",
     ),
   port: z.number().int().positive().max(65535).optional(),
   cwd: z.string().optional().describe("Optional remote working directory for resolving relative paths."),

@@ -239,7 +239,9 @@ Agentic execution flow after a structured batch plan:
    invalid_args, ambiguous, not_found, or system_required, ask the user only for
    that missing or ambiguous information.
 4. Summarize completed, failed, skipped, and still-blocked rows from
-   agentic_run_plan's result.
+   agentic_run_plan's result. Always mention failed rows explicitly, including
+   row_number, test_name, system_name when present, run_id, exit_code, summary,
+   and the output_tail signal returned by the tool.
 5. If one or more rows failed, do not interrupt the remaining ready rows to
    ask about Jira. After the batch summary, ask once whether the user wants
    Jira drafts for the failed rows, then follow the normal preview-before-create

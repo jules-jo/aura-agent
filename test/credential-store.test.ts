@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CredentialStore } from "../src/ssh/credential-store.js";
+import {
+  CredentialStore,
+  sshPasswordEnvSuffix,
+  sshPasswordResolverFromEnv,
+} from "../src/ssh/credential-store.js";
 
 describe("CredentialStore", () => {
   it("returns cached passwords without prompting", async () => {
@@ -32,6 +36,51 @@ describe("CredentialStore", () => {
     const second = await store.request({ credentialId: "shared", host: "h", username: "u" });
     expect(second).toBe("pw");
     expect(store.getPending().length).toBe(0);
+  });
+
+  it("resolves passwords from scoped environment variables before prompting", async () => {
+    const store = new CredentialStore({
+      resolvePassword: sshPasswordResolverFromEnv({
+        AURA_SSH_PASSWORD_BENCH_A: "from-env",
+        AURA_SSH_PASSWORD: "fallback",
+      }),
+    });
+
+    const password = await store.request({
+      credentialId: "bench-a",
+      host: "192.168.1.10",
+      username: "root",
+    });
+
+    expect(password).toBe("from-env");
+    expect(store.getPending()).toHaveLength(0);
+  });
+
+  it("falls back to username@host and global SSH password env vars", async () => {
+    const resolver = sshPasswordResolverFromEnv({
+      AURA_SSH_PASSWORD_ROOT_192_168_1_10: "host-env",
+      AURA_SSH_PASSWORD: "global-env",
+    });
+
+    expect(
+      resolver({
+        credentialId: "root@192.168.1.10",
+        host: "192.168.1.10",
+        username: "root",
+      }),
+    ).toBe("host-env");
+    expect(
+      resolver({
+        credentialId: "unknown",
+        host: "10.0.0.2",
+        username: "root",
+      }),
+    ).toBe("global-env");
+  });
+
+  it("normalizes SSH password env suffixes", () => {
+    expect(sshPasswordEnvSuffix("root@192.168.1.10")).toBe("ROOT_192_168_1_10");
+    expect(sshPasswordEnvSuffix("bench-a")).toBe("BENCH_A");
   });
 
   it("rejectNext rejects the queued promise", async () => {

@@ -39,6 +39,21 @@ for missing or ambiguous inputs:
 npm start -- --agentic
 ```
 
+For SSH password auth, Aura first checks `.env` before prompting. Use a scoped
+variable when possible:
+
+```
+# For credential_id: bench-a
+AURA_SSH_PASSWORD_BENCH_A=your-password
+
+# Fallback for any SSH target without a more specific variable
+AURA_SSH_PASSWORD=your-password
+```
+
+Scoped variable names are normalized from `credential_id`, or from
+`username@host` when `credential_id` is omitted. For example,
+`root@192.168.1.10` becomes `AURA_SSH_PASSWORD_ROOT_192_168_1_10`.
+
 You can set a default spreadsheet in `.env`:
 
 ```

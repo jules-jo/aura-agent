@@ -16,7 +16,7 @@ import { spreadsheetTools } from "./tools/spreadsheet.js";
 import { wikiReadOnlyTools, wikiTools } from "./tools/wiki.js";
 import { jiraConfigFromEnv, jiraTools } from "./tools/jira.js";
 import { teamsConfigFromEnv, teamsTools } from "./tools/teams.js";
-import { CredentialStore } from "./ssh/credential-store.js";
+import { CredentialStore, sshPasswordResolverFromEnv } from "./ssh/credential-store.js";
 import { ConfirmationStore, type ConfirmationRequest } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
 import { createSsh2Client } from "./ssh/ssh-client.js";
@@ -32,7 +32,9 @@ async function main(): Promise<void> {
 
   loadDotEnv(process.cwd());
   const runStore = new RunStore();
-  const credentials = new CredentialStore();
+  const credentials = new CredentialStore({
+    resolvePassword: sshPasswordResolverFromEnv(process.env),
+  });
   const confirmations = new ConfirmationStore({
     bypass: cli.bypassPermissions,
     ...(cli.agenticMode ? { autoApprove: isAgenticAutoApprovedConfirmation } : {}),
@@ -66,6 +68,7 @@ async function main(): Promise<void> {
       confirmations,
       localTools,
       sshTools,
+      traces: agentTraces,
     }),
     ...localTools,
     ...sshTools,
