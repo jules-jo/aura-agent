@@ -61,6 +61,20 @@ AURA_AGENTIC_SPREADSHEET_PATH=./test-plan.xlsx
 AURA_AGENTIC_SPREADSHEET_SHEET=Plan
 ```
 
+Agentic run progress is also controlled from `.env`:
+
+```
+AURA_AGENTIC_POLL_WAIT_MS=2000
+AURA_AGENTIC_PROGRESS_CHUNK_LINES=20
+AURA_AGENTIC_PROGRESS_HEARTBEAT_MS=30000
+```
+
+`AURA_AGENTIC_POLL_WAIT_MS` controls how often Aura checks run state.
+`AURA_AGENTIC_PROGRESS_CHUNK_LINES` controls how many output lines make one
+progress update. `AURA_AGENTIC_PROGRESS_HEARTBEAT_MS` controls the quiet
+heartbeat when a run is active but has not produced a new output chunk; set it
+to `0` to disable that heartbeat.
+
 Then prompt Aura with:
 
 ```
@@ -83,6 +97,31 @@ plus a machine-readable `structured_plan` with `ready`, `needs_input`, and
 `agentic_run_plan`, which runs ready rows sequentially and writes result columns
 such as `aura_status`, `aura_run_id`, `aura_completed_at`, `aura_summary`, and
 `aura_jira_key` back to the spreadsheet.
+
+Aura also has a read-only `log_analyst` sidecar. After deterministic execution,
+Aura can delegate compact run results to it for a human-quality final summary,
+failure interpretation, Teams-ready summary text, and Jira-ready failure
+context. The analyst receives structured rows and output tails only; it cannot
+run tests or perform side effects.
+
+For better in-run status, add optional `progress.patterns` to a test catalog
+page. Aura uses those regex rules to turn raw output into semantic updates and
+final summaries:
+
+```yaml
+progress:
+  patterns:
+    - type: phase
+      regex: "^PHASE: (?<phase>.+)$"
+    - type: progress
+      regex: "iteration (?<current>\\d+)/(?<total>\\d+)"
+      message: "iteration {current}/{total}"
+    - type: metric
+      name: "fps"
+      regex: "fps=(?<value>\\d+(?:\\.\\d+)?)"
+    - type: failure
+      regex: "^ERROR: (?<message>.+)$"
+```
 
 ## Layout
 

@@ -3,8 +3,10 @@ import type { AssistantEvent, AuraSession, StartSessionOptions } from "../sessio
 import { startSession as defaultStartSession } from "../session/copilot.js";
 import { parseBatchPlanOutput } from "./batch-plan.js";
 import type { BatchPlan } from "./batch-plan.js";
+import { parseLogAnalysisOutput } from "./log-analysis.js";
+import type { LogAnalysis } from "./log-analysis.js";
 
-export const agentRoles = ["batch_planner"] as const;
+export const agentRoles = ["batch_planner", "log_analyst"] as const;
 export type AgentRole = (typeof agentRoles)[number];
 
 export interface AgentTask {
@@ -19,6 +21,8 @@ export interface AgentResult {
   error?: string;
   structured_plan?: BatchPlan;
   structured_plan_error?: string;
+  structured_analysis?: LogAnalysis;
+  structured_analysis_error?: string;
 }
 
 export interface AgentManager {
@@ -60,6 +64,37 @@ test_name, system_name, reason, notes. structured_plan.suggested_next_action is
 a short string or null. Use empty arrays when a category has no entries. Keep
 row_number aligned with spreadsheet_read's _row_number field when available.`;
 
+const LOG_ANALYST_SYSTEM_MESSAGE = `You are Aura's log_analyst sidecar agent.
+
+Your job is read-only interpretation of completed or in-progress test run
+results. You receive structured run data from the main Aura orchestrator:
+test name, system name, status, exit code, command, preflight results, parsed
+progress state, output tail, and failure_report details when available.
+
+Never run tests, never dispatch SSH/local commands, never write spreadsheets or
+wiki pages, never create Jira issues, and never send Teams notifications.
+
+Produce a concise, high-signal summary for a human operator:
+- What ran and where.
+- Final status and exit code.
+- Most meaningful progress state: phase, iteration/progress, metrics, warnings,
+  artifacts, and failure reason.
+- What likely went wrong for failures.
+- Suggested next step.
+- Whether a Jira draft is worth offering for each failed row.
+
+Prefer the structured progress/failure data over raw output. Use output_tail
+only to find missing context or the clearest failure signal. Do not invent
+metrics, artifacts, or causes not supported by the provided data.
+
+After the human-readable summary, append a fenced JSON block. Do not put example
+or placeholder rows in the JSON. Use this contract:
+structured_analysis.overall_status is one of success, failed, mixed, blocked,
+or unknown. structured_analysis.summary is the short user-facing summary.
+structured_analysis.rows[] contains row_number, test_name, system_name, status,
+summary, key_signals, failure_reason, suggested_next_action, jira_recommended.
+structured_analysis.teams_summary is a concise Teams-ready message or null.`;
+
 export class CopilotAgentManager implements AgentManager {
   private readonly model: string | undefined;
   private readonly logLevel: CopilotClientOptions["logLevel"] | undefined;
@@ -94,12 +129,19 @@ export class CopilotAgentManager implements AgentManager {
         const parsedPlan = task.role === "batch_planner" && result.error === undefined
           ? parseBatchPlanOutput(result.output)
           : undefined;
+        const parsedAnalysis = task.role === "log_analyst" && result.error === undefined
+          ? parseLogAnalysisOutput(result.output)
+          : undefined;
         return {
           role: task.role,
           output: result.output,
           ...(result.error !== undefined ? { error: result.error } : {}),
           ...(parsedPlan?.structuredPlan !== undefined ? { structured_plan: parsedPlan.structuredPlan } : {}),
           ...(parsedPlan?.error !== undefined ? { structured_plan_error: parsedPlan.error } : {}),
+          ...(parsedAnalysis?.structuredAnalysis !== undefined
+            ? { structured_analysis: parsedAnalysis.structuredAnalysis }
+            : {}),
+          ...(parsedAnalysis?.error !== undefined ? { structured_analysis_error: parsedAnalysis.error } : {}),
         };
       } finally {
         this.activeSessions.delete(session);
@@ -135,6 +177,7 @@ export function composeAgentPrompt(task: AgentTask): string {
 
 function systemMessageForRole(role: AgentRole): string {
   if (role === "batch_planner") return BATCH_PLANNER_SYSTEM_MESSAGE;
+  if (role === "log_analyst") return LOG_ANALYST_SYSTEM_MESSAGE;
   return "";
 }
 

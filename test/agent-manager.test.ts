@@ -134,6 +134,93 @@ describe("CopilotAgentManager", () => {
     expect(closed).toBe(1);
   });
 
+  it("starts a log analyst sidecar and parses structured analysis", async () => {
+    const startCalls: StartSessionOptions[] = [];
+    const manager = new CopilotAgentManager({
+      startSession: async (options) => {
+        startCalls.push(options);
+        return makeFakeSession(
+          async (_prompt, emit) => {
+            emit({
+              kind: "final",
+              text: [
+                "Test Z failed during calibration.",
+                "",
+                "```json",
+                JSON.stringify({
+                  structured_analysis: {
+                    overall_status: "failed",
+                    summary: "Test Z failed during calibration on System A.",
+                    rows: [
+                      {
+                        row_number: 2,
+                        test_name: "Test Z",
+                        system_name: "System A",
+                        status: "failed",
+                        summary: "Calibration file was missing.",
+                        key_signals: ["phase calibration", "failure: missing calibration.json"],
+                        failure_reason: "missing calibration.json",
+                        suggested_next_action: "Run Calibration Z, then rerun Test Z.",
+                        jira_recommended: true,
+                      },
+                    ],
+                    teams_summary: "Test Z failed on System A: missing calibration.json.",
+                  },
+                }),
+                "```",
+              ].join("\n"),
+            });
+          },
+          () => {
+            // no-op
+          },
+        );
+      },
+    });
+
+    const result = await manager.run({
+      role: "log_analyst",
+      task: "Summarize this failed run",
+      context: JSON.stringify({
+        rows: [
+          {
+            row_number: 2,
+            test_name: "Test Z",
+            system_name: "System A",
+            status: "failed",
+            progress: { phase: "calibration" },
+            output_tail: ["ERROR: missing calibration.json"],
+          },
+        ],
+      }),
+    });
+
+    expect(result.role).toBe("log_analyst");
+    expect(result.output).toContain("Test Z failed during calibration.");
+    expect(result.structured_analysis).toEqual({
+      overall_status: "failed",
+      summary: "Test Z failed during calibration on System A.",
+      rows: [
+        {
+          row_number: 2,
+          test_name: "Test Z",
+          system_name: "System A",
+          status: "failed",
+          summary: "Calibration file was missing.",
+          key_signals: ["phase calibration", "failure: missing calibration.json"],
+          failure_reason: "missing calibration.json",
+          suggested_next_action: "Run Calibration Z, then rerun Test Z.",
+          jira_recommended: true,
+        },
+      ],
+      teams_summary: "Test Z failed on System A: missing calibration.json.",
+    });
+    expect(startCalls[0]?.tools).toEqual([]);
+    expect(startCalls[0]?.systemMessage?.content).toContain("log_analyst");
+    expect(startCalls[0]?.systemMessage?.content).toContain("Never run tests");
+    expect(startCalls[0]?.systemMessage?.content).toContain("structured_analysis");
+  });
+
   it("returns an agent error when the sidecar emits one without output", async () => {
     const manager = new CopilotAgentManager({
       startSession: async () =>
@@ -175,6 +262,27 @@ describe("CopilotAgentManager", () => {
     expect(result.output).toBe("Ready to run: row 1");
     expect(result.structured_plan).toBeUndefined();
     expect(result.structured_plan_error).toContain("did not include");
+  });
+
+  it("returns a structured analysis error when the log analyst omits machine-readable JSON", async () => {
+    const manager = new CopilotAgentManager({
+      startSession: async () =>
+        makeFakeSession(
+          async (_prompt, emit) => {
+            emit({ kind: "final", text: "Test Z failed during calibration." });
+          },
+          () => {
+            // no-op
+          },
+        ),
+    });
+
+    const result = await manager.run({ role: "log_analyst", task: "Summarize run" });
+
+    expect(result.role).toBe("log_analyst");
+    expect(result.output).toBe("Test Z failed during calibration.");
+    expect(result.structured_analysis).toBeUndefined();
+    expect(result.structured_analysis_error).toContain("did not include");
   });
 
   it("formats prompts with optional context", () => {

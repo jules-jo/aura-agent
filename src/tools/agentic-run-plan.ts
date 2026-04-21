@@ -2,9 +2,21 @@ import { z } from "zod";
 import { defineTool } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
 import { listSystemPages, listTestPages } from "../wiki/pages.js";
-import { resolveRunSpec, type CatalogPreflightStep, type ResolvedRunSpec } from "../wiki/catalog.js";
+import {
+  resolveRunSpec,
+  type CatalogPreflightStep,
+  type CatalogProgressSpec,
+  type ResolvedRunSpec,
+} from "../wiki/catalog.js";
 import type { ConfirmationStore } from "../ssh/confirmation-store.js";
 import type { AgentTraceStore } from "../agents/agent-trace-store.js";
+import {
+  formatProgressEvents,
+  RunProgressTracker,
+  summarizeProgressSnapshot,
+  type ProgressSpec,
+  type RunProgressSnapshot,
+} from "../runs/progress-parser.js";
 import { writeSpreadsheetUpdates, type SpreadsheetCellValue } from "./spreadsheet.js";
 
 const readyRowSchema = z
@@ -40,7 +52,29 @@ const runPlanSchema = z.object({
   ready: z.array(readyRowSchema).min(1).describe("structured_plan.ready rows from batch_planner."),
   write_results: z.boolean().optional().describe("Defaults to true when spreadsheet_path is provided."),
   result_columns: resultColumnsSchema.describe("Optional spreadsheet column names for write-back."),
-  poll_wait_ms: z.number().int().min(0).max(10000).optional().describe("Poll wait per run. Defaults to 2000."),
+  poll_wait_ms: z
+    .number()
+    .int()
+    .min(0)
+    .max(10000)
+    .optional()
+    .describe("Poll wait per run. Defaults to runtime AURA_AGENTIC_POLL_WAIT_MS or 2000."),
+  progress_heartbeat_ms: z
+    .number()
+    .int()
+    .min(0)
+    .max(600000)
+    .optional()
+    .describe(
+      "Quiet-running heartbeat interval. 0 disables quiet heartbeats. Defaults to runtime AURA_AGENTIC_PROGRESS_HEARTBEAT_MS or 30000.",
+    ),
+  progress_chunk_lines: z
+    .number()
+    .int()
+    .positive()
+    .max(200)
+    .optional()
+    .describe("Output lines per progress chunk. Defaults to runtime AURA_AGENTIC_PROGRESS_CHUNK_LINES or 20."),
 });
 
 const recordJiraKeySchema = z.object({
@@ -65,6 +99,9 @@ export interface AgenticRunPlanToolsOptions {
   confirmations: ConfirmationStore;
   localTools: Tool<any>[];
   sshTools: Tool<any>[];
+  defaultPollWaitMs?: number;
+  progressHeartbeatMs?: number;
+  progressChunkLines?: number;
   traces?: AgentTraceStore;
   now?: () => Date;
 }
@@ -81,6 +118,7 @@ interface RowResult {
   completed_at: string;
   summary: string;
   output_tail: string[];
+  progress: RunProgressSnapshot;
   spreadsheet_updated: boolean;
   spreadsheet_error?: string;
   preflight: PreflightResult[];
@@ -102,6 +140,13 @@ interface DispatchResult {
   completedAt: string;
   summary: string;
   lines: string[];
+  progress: RunProgressSnapshot;
+}
+
+interface ProgressConfig {
+  pollWaitMs: number;
+  heartbeatMs: number;
+  chunkLines: number;
 }
 
 const DEFAULT_RESULT_COLUMNS: ResultColumns = {
@@ -111,6 +156,9 @@ const DEFAULT_RESULT_COLUMNS: ResultColumns = {
   summary: "aura_summary",
   jira_key: "aura_jira_key",
 };
+const DEFAULT_POLL_WAIT_MS = 2000;
+const DEFAULT_PROGRESS_HEARTBEAT_MS = 30000;
+const DEFAULT_PROGRESS_CHUNK_LINES = 20;
 
 export function agenticRunPlanTools(options: AgenticRunPlanToolsOptions): Tool<any>[] {
   const runPlanTool = defineTool("agentic_run_plan", {
@@ -122,7 +170,11 @@ export function agenticRunPlanTools(options: AgenticRunPlanToolsOptions): Tool<a
       return runPlan(options, {
         ready: parsed.ready,
         resultColumns: normalizeResultColumns(parsed.result_columns),
-        pollWaitMs: parsed.poll_wait_ms ?? 2000,
+        progress: {
+          pollWaitMs: parsed.poll_wait_ms ?? options.defaultPollWaitMs ?? DEFAULT_POLL_WAIT_MS,
+          heartbeatMs: parsed.progress_heartbeat_ms ?? options.progressHeartbeatMs ?? DEFAULT_PROGRESS_HEARTBEAT_MS,
+          chunkLines: parsed.progress_chunk_lines ?? options.progressChunkLines ?? DEFAULT_PROGRESS_CHUNK_LINES,
+        },
         ...(parsed.spreadsheet_path !== undefined ? { spreadsheetPath: parsed.spreadsheet_path } : {}),
         ...(parsed.sheet_name !== undefined ? { sheetName: parsed.sheet_name } : {}),
         ...(parsed.write_results !== undefined ? { writeResults: parsed.write_results } : {}),
@@ -191,7 +243,7 @@ async function runPlan(
     ready: ReadyRow[];
     writeResults?: boolean;
     resultColumns: ResultColumns;
-    pollWaitMs: number;
+    progress: ProgressConfig;
   },
 ): Promise<Record<string, unknown>> {
   const startedAt = options.now?.().toISOString() ?? new Date().toISOString();
@@ -215,7 +267,7 @@ async function runPlan(
       row,
       testPages,
       systemPages,
-      pollWaitMs: input.pollWaitMs,
+      progress: input.progress,
     });
     if (input.spreadsheetPath && shouldWrite && writeApproved && row.row_number !== null) {
       const writeResult = await writeRowResult(options, {
@@ -263,6 +315,7 @@ async function runPlan(
         exit_code: row.exit_code,
         summary: row.summary,
         output_tail: row.output_tail,
+        progress: row.progress,
       })),
     },
     rows,
@@ -275,7 +328,7 @@ async function executeRow(
     row: ReadyRow;
     testPages: Awaited<ReturnType<typeof listTestPages>>;
     systemPages: Awaited<ReturnType<typeof listSystemPages>>;
-    pollWaitMs: number;
+    progress: ProgressConfig;
   },
 ): Promise<RowResult> {
   const providedArgs = stringifyArgs(input.row.args);
@@ -305,7 +358,7 @@ async function executeRow(
       mainSpec: resolved,
       step,
       providedArgs,
-      pollWaitMs: input.pollWaitMs,
+      progress: input.progress,
     });
     preflight.push(preflightResult);
     if (preflightResult.status === "failed" || preflightResult.status === "blocked") {
@@ -320,6 +373,7 @@ async function executeRow(
         completed_at: skippedAt,
         summary: `Skipped ${resolved.test_name}: ${preflightResult.summary}`,
         output_tail: [],
+        progress: emptyProgressSnapshot(),
         spreadsheet_updated: false,
         preflight,
       };
@@ -328,7 +382,7 @@ async function executeRow(
 
   const dispatch = await dispatchAndWait(options, {
     spec: resolved,
-    pollWaitMs: input.pollWaitMs,
+    progress: input.progress,
   });
   return {
     row_number: input.row.row_number,
@@ -340,6 +394,7 @@ async function executeRow(
     completed_at: dispatch.completedAt,
     summary: dispatch.summary,
     output_tail: tailLines(dispatch.lines),
+    progress: dispatch.progress,
     spreadsheet_updated: false,
     preflight,
   };
@@ -351,7 +406,7 @@ async function executePreflight(
     mainSpec: ResolvedRunSpec;
     step: CatalogPreflightStep;
     providedArgs: Record<string, string>;
-    pollWaitMs: number;
+    progress: ProgressConfig;
   },
 ): Promise<PreflightResult> {
   if (!input.step.check.path) {
@@ -419,7 +474,7 @@ async function executePreflight(
 
   const dispatch = await dispatchAndWait(options, {
     spec: resolved,
-    pollWaitMs: input.pollWaitMs,
+    progress: input.progress,
   });
   return {
     name: input.step.name,
@@ -459,15 +514,17 @@ async function checkPreflightFile(
 
 async function dispatchAndWait(
   options: AgenticRunPlanToolsOptions,
-  input: { spec: ResolvedRunSpec; pollWaitMs: number },
+  input: { spec: ResolvedRunSpec; progress: ProgressConfig },
 ): Promise<DispatchResult> {
   const spec = input.spec;
+  const progress = progressConfigForSpec(input.progress, spec.progress);
   const dispatchArgs = {
     command: spec.command,
     ...(spec.cwd !== null ? { cwd: spec.cwd } : {}),
     ...(spec.env !== null ? { env: spec.env } : {}),
     test_name: spec.test_name,
     ...(spec.system_name !== null ? { system_name: spec.system_name } : {}),
+    iteration_lines: progress.chunkLines,
   };
   const dispatch =
     spec.execution_target === "local"
@@ -488,6 +545,7 @@ async function dispatchAndWait(
       completedAt: options.now?.().toISOString() ?? new Date().toISOString(),
       summary: dispatch.error ? `Dispatch failed: ${dispatch.error}` : "Dispatch did not return a run id.",
       lines: [],
+      progress: emptyProgressSnapshot(),
     };
   }
 
@@ -496,16 +554,25 @@ async function dispatchAndWait(
     runId: dispatch.run_id,
     target: spec.execution_target,
     label: formatSpecLabel(spec),
-    pollWaitMs: input.pollWaitMs,
+    progress,
+    progressSpec: spec.progress,
   });
 }
 
 async function pollUntilComplete(
   options: AgenticRunPlanToolsOptions,
-  input: { runId: string; target: "local" | "ssh"; label: string; pollWaitMs: number },
+  input: {
+    runId: string;
+    target: "local" | "ssh";
+    label: string;
+    progress: ProgressConfig;
+    progressSpec: CatalogProgressSpec | null;
+  },
 ): Promise<DispatchResult> {
   let sinceIteration = 0;
+  let lastProgressAtMs = nowMs(options);
   const lines: string[] = [];
+  const tracker = new RunProgressTracker(toProgressSpec(input.progressSpec));
   for (;;) {
     const poll = await callTool<{
       status?: "running" | "completed" | "failed";
@@ -517,7 +584,7 @@ async function pollUntilComplete(
     }>(input.target === "local" ? options.localTools : options.sshTools, input.target === "local" ? "local_poll" : "ssh_poll", {
       run_id: input.runId,
       since_iteration: sinceIteration,
-      wait_ms: input.pollWaitMs,
+      wait_ms: input.progress.pollWaitMs,
     });
     if (poll.error) {
       trace(options, `${input.label} polling failed: ${poll.error}.`);
@@ -528,18 +595,28 @@ async function pollUntilComplete(
         completedAt: poll.completed_at ?? options.now?.().toISOString() ?? new Date().toISOString(),
         summary: `Poll failed: ${poll.error}`,
         lines,
+        progress: tracker.snapshot(),
       };
     }
-    for (const iteration of poll.iterations ?? []) {
+    const iterations = poll.iterations ?? [];
+    for (const iteration of iterations) {
       lines.push(...iteration.lines);
+      const events = tracker.applyLines(iteration.lines);
+      if (events.length > 0) trace(options, formatProgressEvents(input.label, events));
     }
-    sinceIteration = poll.total_iterations ?? sinceIteration;
+    if (iterations.length > 0) lastProgressAtMs = nowMs(options);
+    sinceIteration = poll.total_iterations ?? nextSinceIteration(sinceIteration, iterations);
     if (poll.status === "running") {
-      trace(options, `${input.label} is still running (${lines.length} output line(s), ${sinceIteration} poll iteration(s)).`);
+      const now = nowMs(options);
+      if (iterations.length === 0 && input.progress.heartbeatMs > 0 && now - lastProgressAtMs >= input.progress.heartbeatMs) {
+        trace(options, `${input.label} still running; no new output chunk yet (run ${input.runId}).`);
+        lastProgressAtMs = now;
+      }
     }
     if (poll.status !== "running") {
       const status = poll.status === "completed" ? "success" : "failed";
-      const summary = summarizeRun(status, poll.exit_code ?? null, lines);
+      const progressSnapshot = tracker.snapshot();
+      const summary = summarizeRun(status, poll.exit_code ?? null, lines, progressSnapshot);
       trace(options, `${input.label} ${status === "success" ? "succeeded" : "failed"}: ${summary}.`);
       return {
         status,
@@ -548,6 +625,7 @@ async function pollUntilComplete(
         completedAt: poll.completed_at ?? options.now?.().toISOString() ?? new Date().toISOString(),
         summary,
         lines,
+        progress: progressSnapshot,
       };
     }
   }
@@ -622,6 +700,7 @@ function blockedRow(
     completed_at: completedAt,
     summary,
     output_tail: [],
+    progress: emptyProgressSnapshot(),
     spreadsheet_updated: false,
     preflight: [],
   };
@@ -637,13 +716,59 @@ function formatResolutionBlocker(spec: ResolvedRunSpec): string {
   return parts.length > 0 ? `Row is not ready to dispatch (${parts.join("; ")}).` : "Row is not ready to dispatch.";
 }
 
-function summarizeRun(status: "success" | "failed" | "skipped", exitCode: number | null, lines: readonly string[]): string {
+function progressConfigForSpec(base: ProgressConfig, spec: CatalogProgressSpec | null): ProgressConfig {
+  return {
+    pollWaitMs: base.pollWaitMs,
+    heartbeatMs: spec?.heartbeat_ms ?? base.heartbeatMs,
+    chunkLines: spec?.chunk_lines ?? base.chunkLines,
+  };
+}
+
+function toProgressSpec(spec: CatalogProgressSpec | null): ProgressSpec | null {
+  if (!spec) return null;
+  return {
+    patterns: spec.patterns,
+  };
+}
+
+function emptyProgressSnapshot(): RunProgressSnapshot {
+  return {
+    phase: null,
+    progress: null,
+    metrics: {},
+    latest_signal: null,
+    warnings: [],
+    failures: [],
+    artifacts: [],
+    matched_events: 0,
+  };
+}
+
+function summarizeRun(
+  status: "success" | "failed" | "skipped",
+  exitCode: number | null,
+  lines: readonly string[],
+  progress?: RunProgressSnapshot,
+): string {
+  const progressSummary = progress ? summarizeProgressSnapshot(progress) : null;
   const tail = tailLines(lines);
   const signal =
     [...tail].reverse().find((line) => /\b(passed|failed|failures?|errors?|tests?|success|completed)\b/i.test(line)) ??
     tail.at(-1);
   const exit = exitCode !== null ? `exit ${exitCode}` : "unknown exit";
+  if (progressSummary && signal && !progressSummary.includes(signal)) {
+    return `${status} (${exit}): ${progressSummary}; latest output ${signal}`;
+  }
+  if (progressSummary) return `${status} (${exit}): ${progressSummary}`;
   return signal ? `${status} (${exit}): ${signal}` : `${status} (${exit})`;
+}
+
+function nextSinceIteration(current: number, iterations: ReadonlyArray<{ index: number }>): number {
+  return iterations.reduce((next, iteration) => Math.max(next, iteration.index + 1), current);
+}
+
+function nowMs(options: AgenticRunPlanToolsOptions): number {
+  return options.now?.().getTime() ?? Date.now();
 }
 
 function tailLines(lines: readonly string[]): string[] {

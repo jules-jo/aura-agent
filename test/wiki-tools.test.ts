@@ -583,6 +583,64 @@ describe("wiki tools", () => {
     ]);
   });
 
+  it("catalog_resolve_run exposes semantic progress rules", async () => {
+    await fs.writeFile(
+      path.join(rootDir, "pages", "tests", "semantic-test.md"),
+      [
+        "---",
+        'name: "Semantic Test"',
+        "host: localhost",
+        'command: "run-semantic-test"',
+        "progress:",
+        "  heartbeat_ms: 45000",
+        "  chunk_lines: 7",
+        "  patterns:",
+        "    - type: phase",
+        '      regex: "^PHASE: (?<phase>.+)$"',
+        "    - type: metric",
+        '      name: "fps"',
+        '      regex: "fps=(?<value>\\\\d+(?:\\\\.\\\\d+)?)"',
+        "---",
+        "",
+        "# Semantic Test",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const tools = wikiTools({ rootDir });
+    const resolved = await callHandler<{
+      ready_to_dispatch: boolean;
+      progress: {
+        heartbeat_ms: number | null;
+        chunk_lines: number | null;
+        patterns: Array<{ type: string; regex: string; name: string | null; message: string | null }>;
+      } | null;
+    }>(tools, "catalog_resolve_run", {
+      test_query: "semantic test",
+    });
+
+    expect(resolved.ready_to_dispatch).toBe(true);
+    expect(resolved.progress).toEqual({
+      heartbeat_ms: 45000,
+      chunk_lines: 7,
+      patterns: [
+        {
+          type: "phase",
+          regex: "^PHASE: (?<phase>.+)$",
+          name: null,
+          message: null,
+        },
+        {
+          type: "metric",
+          regex: "fps=(?<value>\\d+(?:\\.\\d+)?)",
+          name: "fps",
+          message: null,
+        },
+      ],
+    });
+  });
+
   it("wiki_write creates markdown files and requires overwrite=true to replace", async () => {
     const confirmations = new ConfirmationStore();
     confirmations.subscribe(() => {

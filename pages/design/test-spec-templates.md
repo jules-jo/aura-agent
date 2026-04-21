@@ -6,6 +6,7 @@ The rule of thumb is:
 - `pages/tests/*.md` says what to run and what inputs it needs
 - `pages/systems/*.md` says where to run it
 - `preflight` lets a test ask for prerequisite work like calibration before the main test runs
+- `progress` lets a test turn raw output into semantic status updates and summaries
 
 ## Python CLI
 
@@ -35,6 +36,20 @@ args:
     description: "Input file path passed to x.py"
 summary:
   include_tail_lines: 40
+progress:
+  heartbeat_ms: 30000
+  chunk_lines: 20
+  patterns:
+    - type: phase
+      regex: "^PHASE: (?<phase>.+)$"
+    - type: progress
+      regex: "iteration (?<current>\\d+)/(?<total>\\d+)"
+      message: "iteration {current}/{total}"
+    - type: metric
+      name: "fps"
+      regex: "fps=(?<value>\\d+(?:\\.\\d+)?)"
+    - type: failure
+      regex: "^ERROR: (?<message>.+)$"
 ---
 
 # X Script
@@ -146,6 +161,22 @@ preflight:
     before_test_ask: "Calibration is complete or skipped. Run Test Z now?"
 summary:
   include_tail_lines: 40
+progress:
+  heartbeat_ms: 30000
+  chunk_lines: 20
+  patterns:
+    - type: phase
+      regex: "^PHASE: (?<phase>.+)$"
+    - type: progress
+      regex: "frame (?<current>\\d+)/(?<total>\\d+)"
+      message: "frame {current}/{total}"
+    - type: metric
+      name: "latency_ms"
+      regex: "latency_ms=(?<value>\\d+(?:\\.\\d+)?)"
+    - type: warning
+      regex: "^WARNING: (?<message>.+)$"
+    - type: failure
+      regex: "^ERROR: (?<message>.+)$"
 ---
 
 # Test Z

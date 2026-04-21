@@ -292,6 +292,7 @@ describe("agentic run plan tools", () => {
         },
       ],
       poll_wait_ms: 0,
+      progress_chunk_lines: 2,
     });
 
     expect(result.totals.failed).toBe(1);
@@ -314,8 +315,82 @@ describe("agentic run plan tools", () => {
         "Starting agentic batch execution for 1 ready row(s).",
         "Running row 2: Failing Test.",
         expect.stringContaining("Dispatched Failing Test as run"),
-        expect.stringContaining("Failing Test failed: failed (exit 1): Tests 1 failed (1)."),
+        "Failing Test status: failure: AssertionError: expected ok; failure: Tests 1 failed (1).",
+        expect.stringContaining("Failing Test failed: failed (exit 1): failure: Tests 1 failed (1)."),
         "Agentic batch finished: 0 success, 1 failed, 0 skipped, 0 blocked.",
+      ]),
+    );
+    expect(traces.getEvents().some((event) => event.message.includes("is still running"))).toBe(false);
+  });
+
+  it("uses catalog progress patterns for semantic status and final summaries", async () => {
+    await writeTestPage(
+      "semantic-test.md",
+      [
+        "---",
+        'name: "Semantic Test"',
+        "host: localhost",
+        'command: "run-semantic-test"',
+        "progress:",
+        "  chunk_lines: 2",
+        "  patterns:",
+        "    - type: phase",
+        '      regex: "^PHASE: (?<phase>.+)$"',
+        "    - type: progress",
+        '      regex: "^ITER (?<current>\\\\d+)/(?<total>\\\\d+)$"',
+        '      message: "iteration {current}/{total}"',
+        "    - type: metric",
+        '      name: "fps"',
+        '      regex: "fps=(?<value>\\\\d+(?:\\\\.\\\\d+)?)"',
+        "    - type: failure",
+        '      regex: "^ERROR: (?<message>.+)$"',
+        "---",
+        "# Semantic Test",
+      ].join("\n"),
+    );
+    await fs.writeFile(path.join(rootDir, "plan.csv"), "test_name\nSemantic Test\n", "utf8");
+    const traces = new AgentTraceStore();
+    const tools = makeTools(() => {
+      const fake = makeFakeChild();
+      setImmediate(() => {
+        fake.emitStdout("PHASE: calibration\nnoise line\n");
+        fake.emitStdout("ITER 3/10\nfps=29.5\n");
+        fake.emitStderr("ERROR: camera disconnected\n");
+        fake.close(1);
+      });
+      return fake.child;
+    }, traces);
+
+    const result = await callHandler<{
+      totals: { failed: number };
+      rows: Array<{ status: string; summary: string; progress: { phase: string; progress: string; metrics: Record<string, string>; failures: string[] } }>;
+    }>(tools, "agentic_run_plan", {
+      spreadsheet_path: "plan.csv",
+      ready: [
+        {
+          row_number: 2,
+          test_name: "Semantic Test",
+        },
+      ],
+      poll_wait_ms: 0,
+    });
+
+    expect(result.totals.failed).toBe(1);
+    expect(result.rows[0]?.progress).toMatchObject({
+      phase: "calibration",
+      progress: "iteration 3/10",
+      metrics: { fps: "29.5" },
+      failures: ["failure: camera disconnected"],
+    });
+    expect(result.rows[0]?.summary).toContain("failure: camera disconnected");
+    expect(result.rows[0]?.summary).toContain("phase calibration");
+    expect(result.rows[0]?.summary).toContain("iteration 3/10");
+    expect(result.rows[0]?.summary).toContain("fps=29.5");
+    expect(traces.getEvents().map((event) => event.message)).toEqual(
+      expect.arrayContaining([
+        "Semantic Test status: phase calibration.",
+        "Semantic Test status: iteration 3/10; fps=29.5.",
+        "Semantic Test status: failure: camera disconnected.",
       ]),
     );
   });

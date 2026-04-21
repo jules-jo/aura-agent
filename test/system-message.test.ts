@@ -37,6 +37,9 @@ describe("phase3SystemMessageForMode", () => {
     expect(message).toContain("Execute the ready rows sequentially");
     expect(message).toContain("call agentic_run_plan with");
     expect(message).toContain("Let agentic_run_plan resolve, preflight, dispatch, poll to completion");
+    expect(message).toContain('agent_delegate({ role: "log_analyst"');
+    expect(message).toContain("structured_analysis");
+    expect(message).toContain("delegate to log_analyst first");
     expect(message).toContain("Spreadsheet result write-back is also auto-approved");
     expect(message).toContain("agentic_record_jira_key");
     expect(message).toContain("If the preflight file is missing");

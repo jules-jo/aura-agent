@@ -112,14 +112,28 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   tool result includes structured_plan, use that object rather than reparsing
   the prose summary. If structured_plan_error is present, explain that the
   sidecar did not return a machine-readable plan and fall back to the text plan.
+- agent_delegate({ role: "log_analyst", task, context? }) delegates read-only
+  interpretation of test run results to a sidecar Aura agent. Use it after
+  agentic_run_plan completes when a human-quality final summary, failure
+  interpretation, Teams-ready summary, or Jira-ready failure explanation is
+  useful. Pass compact structured context: row_number, test_name, system_name,
+  status, run_id, exit_code, summary, progress, preflight, and output_tail.
+  The sidecar cannot run tests or perform side effects. If the returned result
+  includes structured_analysis, use it for the final user-facing summary and for
+  Jira draft context; if structured_analysis_error is present, fall back to
+  agentic_run_plan's deterministic result.
 - agentic_run_plan({ spreadsheet_path?, sheet_name?, ready, write_results?,
-  result_columns? }) deterministically executes structured_plan.ready rows
-  sequentially. It resolves each row through the catalog, handles file_exists
-  preflights, dispatches and polls each run, tracks success/failed/skipped/
-  blocked, and writes status/run_id/completed_at/summary/Jira-key columns back
-  to the spreadsheet when spreadsheet_path is provided. Prefer this tool over
-  manually dispatching each row after batch_planner returns structured_plan.ready
-  rows in agentic spreadsheet mode.
+  result_columns?, poll_wait_ms?, progress_heartbeat_ms?,
+  progress_chunk_lines? }) deterministically executes structured_plan.ready
+  rows sequentially. It resolves each row through the catalog, handles
+  file_exists preflights, dispatches and polls each run, reports progress when
+  semantic status changes are parsed from output, tracks
+  success/failed/skipped/blocked, and writes status/run_id/completed_at/summary/
+  Jira-key columns back to the spreadsheet when spreadsheet_path is provided.
+  Poll cadence and raw output batch size normally come from runtime defaults or
+  the test catalog's progress settings; only override them when the user asks.
+  Prefer this tool over manually dispatching each row after batch_planner returns
+  structured_plan.ready rows in agentic spreadsheet mode.
 - agentic_record_jira_key({ spreadsheet_path, sheet_name?, row_number,
   jira_key, result_columns? }) writes a Jira key back into the same spreadsheet
   row after a Jira issue has already been previewed, approved, and created.
@@ -239,9 +253,12 @@ Agentic execution flow after a structured batch plan:
    invalid_args, ambiguous, not_found, or system_required, ask the user only for
    that missing or ambiguous information.
 4. Summarize completed, failed, skipped, and still-blocked rows from
-   agentic_run_plan's result. Always mention failed rows explicitly, including
-   row_number, test_name, system_name when present, run_id, exit_code, summary,
-   and the output_tail signal returned by the tool.
+   agentic_run_plan's result. For non-trivial batches or any failed row,
+   delegate to log_analyst first with the compact agentic_run_plan rows and
+   failure_report, then use structured_analysis when available. Always mention
+   failed rows explicitly, including row_number, test_name, system_name when
+   present, run_id, exit_code, summary, and the output_tail/progress signal
+   returned by the tool or log_analyst.
 5. If one or more rows failed, do not interrupt the remaining ready rows to
    ask about Jira. After the batch summary, ask once whether the user wants
    Jira drafts for the failed rows, then follow the normal preview-before-create

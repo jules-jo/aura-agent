@@ -56,6 +56,21 @@ export interface CatalogPreflightStep {
   before_test_ask: string | null;
 }
 
+export type CatalogProgressPatternType = "phase" | "progress" | "metric" | "warning" | "failure" | "artifact";
+
+export interface CatalogProgressPattern {
+  type: CatalogProgressPatternType;
+  regex: string;
+  name: string | null;
+  message: string | null;
+}
+
+export interface CatalogProgressSpec {
+  heartbeat_ms: number | null;
+  chunk_lines: number | null;
+  patterns: CatalogProgressPattern[];
+}
+
 export interface TestLookup {
   score: number;
   match_type: "name" | "alias" | "slug" | "fuzzy";
@@ -89,6 +104,7 @@ export interface TestLookup {
   fail_pattern: string | null;
   summary: Record<string, unknown> | null;
   preflight: CatalogPreflightStep[];
+  progress: CatalogProgressSpec | null;
   execution_target: "local" | "ssh" | null;
   required_fields: string[];
   frontmatter: Record<string, unknown>;
@@ -131,6 +147,7 @@ export interface ResolvedRunSpec {
   fail_pattern: string | null;
   summary: Record<string, unknown> | null;
   preflight: CatalogPreflightStep[];
+  progress: CatalogProgressSpec | null;
   args: CatalogArgSpec[];
   arg_values: Record<string, string>;
   missing_args: CatalogMissingArg[];
@@ -206,6 +223,19 @@ const catalogPreflightStepSchema = z.object({
   before_test_ask: z.string().min(1).optional(),
 });
 
+const catalogProgressPatternSchema = z.object({
+  type: z.enum(["phase", "progress", "metric", "warning", "failure", "artifact"]),
+  regex: z.string().min(1),
+  name: z.string().min(1).optional(),
+  message: z.string().min(1).optional(),
+});
+
+const catalogProgressSchema = z.object({
+  heartbeat_ms: z.number().int().min(0).max(600000).optional(),
+  chunk_lines: z.number().int().positive().max(200).optional(),
+  patterns: z.array(catalogProgressPatternSchema).optional().default([]),
+}).passthrough();
+
 const testFrontmatterSchema = z
   .object({
     tags: z.array(z.string().min(1)).optional(),
@@ -225,6 +255,7 @@ const testFrontmatterSchema = z
     fail_pattern: z.string().min(1).optional(),
     summary: catalogSummarySchema.optional(),
     preflight: z.array(catalogPreflightStepSchema).optional().default([]),
+    progress: catalogProgressSchema.optional(),
     errors: z.unknown().optional(),
   })
   .passthrough()
@@ -237,6 +268,7 @@ const testFrontmatterSchema = z
       });
     }
     validateArgs(value.args, ctx);
+    validateProgress(value.progress, ctx);
   });
 
 const systemFrontmatterSchema = z
@@ -379,6 +411,7 @@ export function resolveRunSpec(
     fail_pattern: test.fail_pattern,
     summary: test.summary,
     preflight: test.preflight,
+    progress: test.progress,
     args: test.args,
     arg_values: test.arg_values,
     missing_args: test.missing_args,
@@ -465,6 +498,7 @@ function buildTestLookup(
     fail_pattern: frontmatter.fail_pattern ?? null,
     summary: frontmatter.summary ?? null,
     preflight: preflightResolution.steps,
+    progress: normalizeProgressSpec(frontmatter.progress),
     execution_target: executionTarget,
     required_fields: requiredFields,
     frontmatter: page.frontmatter,
@@ -606,6 +640,24 @@ function validateArgs(
   }
 }
 
+function validateProgress(
+  progress: z.infer<typeof catalogProgressSchema> | undefined,
+  ctx: z.RefinementCtx,
+): void {
+  if (!progress) return;
+  for (const [index, pattern] of progress.patterns.entries()) {
+    try {
+      new RegExp(pattern.regex);
+    } catch (err: unknown) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["progress", "patterns", index, "regex"],
+        message: `invalid regex: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  }
+}
+
 function normalizeArgSpecs(args: readonly z.infer<typeof catalogArgSchema>[]): CatalogArgSpec[] {
   return args.map((arg) => ({
     name: arg.name,
@@ -616,6 +668,22 @@ function normalizeArgSpecs(args: readonly z.infer<typeof catalogArgSchema>[]): C
     choices: arg.choices ?? null,
     default: arg.default ?? null,
   }));
+}
+
+function normalizeProgressSpec(
+  progress: z.infer<typeof catalogProgressSchema> | undefined,
+): CatalogProgressSpec | null {
+  if (!progress) return null;
+  return {
+    heartbeat_ms: progress.heartbeat_ms ?? null,
+    chunk_lines: progress.chunk_lines ?? null,
+    patterns: progress.patterns.map((pattern) => ({
+      type: pattern.type,
+      regex: pattern.regex,
+      name: pattern.name ?? null,
+      message: pattern.message ?? null,
+    })),
+  };
 }
 
 function normalizeProvidedArgs(input: Record<string, string> | undefined): Record<string, string> {

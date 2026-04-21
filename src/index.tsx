@@ -45,6 +45,9 @@ async function main(): Promise<void> {
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
   const defaultSpreadsheetPath = readOptionalEnv("AURA_AGENTIC_SPREADSHEET_PATH");
   const defaultSpreadsheetSheet = readOptionalEnv("AURA_AGENTIC_SPREADSHEET_SHEET");
+  const agenticPollWaitMs = parseNonNegativeInt(process.env.AURA_AGENTIC_POLL_WAIT_MS);
+  const agenticProgressHeartbeatMs = parseNonNegativeInt(process.env.AURA_AGENTIC_PROGRESS_HEARTBEAT_MS);
+  const agenticProgressChunkLines = parsePositiveInt(process.env.AURA_AGENTIC_PROGRESS_CHUNK_LINES);
   const teamsConfig = teamsConfigFromEnv(process.env);
   const runCompletionNotifier = startRunCompletionNotifier(runStore, { teams: teamsConfig });
   const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
@@ -69,6 +72,9 @@ async function main(): Promise<void> {
       localTools,
       sshTools,
       traces: agentTraces,
+      ...(agenticPollWaitMs !== undefined ? { defaultPollWaitMs: agenticPollWaitMs } : {}),
+      ...(agenticProgressHeartbeatMs !== undefined ? { progressHeartbeatMs: agenticProgressHeartbeatMs } : {}),
+      ...(agenticProgressChunkLines !== undefined ? { progressChunkLines: agenticProgressChunkLines } : {}),
     }),
     ...localTools,
     ...sshTools,
@@ -120,6 +126,12 @@ function parsePositiveInt(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function parseNonNegativeInt(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 function readOptionalEnv(name: string): string | undefined {

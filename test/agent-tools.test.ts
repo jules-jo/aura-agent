@@ -109,4 +109,66 @@ describe("agent tools", () => {
       "batch_planner sidecar agent failed: model unavailable",
     ]);
   });
+
+  it("delegates log analysis tasks to the log_analyst sidecar", async () => {
+    const calls: unknown[] = [];
+    const manager: AgentManager = {
+      run: async (task) => {
+        calls.push(task);
+        return {
+          role: task.role,
+          output: "Test Z failed during calibration.",
+          structured_analysis: {
+            overall_status: "failed",
+            summary: "Test Z failed during calibration on System A.",
+            rows: [
+              {
+                row_number: 2,
+                test_name: "Test Z",
+                system_name: "System A",
+                status: "failed",
+                summary: "Missing calibration file.",
+                key_signals: ["failure: missing calibration.json"],
+                failure_reason: "missing calibration.json",
+                suggested_next_action: "Run Calibration Z.",
+                jira_recommended: true,
+              },
+            ],
+            teams_summary: "Test Z failed on System A.",
+          },
+        };
+      },
+      close: async () => {
+        // no-op
+      },
+    };
+
+    const traces = new AgentTraceStore();
+    const tools = agentTools(manager, { traces });
+    const result = await callHandler<{ role: string; output: string }>(tools, "agent_delegate", {
+      role: "log_analyst",
+      task: "summarize run result",
+      context: '{"rows":[{"test_name":"Test Z","status":"failed"}]}',
+    });
+
+    expect(result).toMatchObject({
+      role: "log_analyst",
+      output: "Test Z failed during calibration.",
+      structured_analysis: {
+        overall_status: "failed",
+        summary: "Test Z failed during calibration on System A.",
+      },
+    });
+    expect(calls).toEqual([
+      {
+        role: "log_analyst",
+        task: "summarize run result",
+        context: '{"rows":[{"test_name":"Test Z","status":"failed"}]}',
+      },
+    ]);
+    expect(traces.getEvents().map((event) => event.message)).toEqual([
+      "I'm delegating to the log_analyst sidecar agent.",
+      "log_analyst sidecar agent finished.",
+    ]);
+  });
 });
