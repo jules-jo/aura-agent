@@ -82,6 +82,7 @@ export function jiraTools(options: JiraToolsOptions): Tool<any>[] {
       }
 
       const approved = await options.confirmations.request({
+        kind: "jira_create",
         summary: `create Jira issue in ${draft.project_key}`,
         detail: formatDraftPreview(draft),
       });

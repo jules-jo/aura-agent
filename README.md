@@ -32,6 +32,13 @@ To run with side-effect confirmations auto-approved for the session:
 npm start -- --bypass
 ```
 
+To run complete spreadsheet rows without per-test approval while still asking
+for missing or ambiguous inputs:
+
+```
+npm start -- --agentic
+```
+
 The TUI opens with two panes (chat + run placeholder). Type a prompt, press
 Enter, watch the model's response render. Ctrl+C exits.
 

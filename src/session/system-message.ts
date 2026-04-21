@@ -174,6 +174,33 @@ You can also help author new test specs:
 - Before writing the draft, briefly summarize the inferred required args. Then
   write the page only after the user agrees, using wiki_write.`;
 
+const AGENTIC_MODE_EXTRA = `AGENTIC MODE is enabled for this session.
+
+Agentic mode is for spreadsheet-driven batch execution. It is separate from
+full bypass mode:
+- Do not ask for permission before running a spreadsheet row that is complete,
+  unambiguous, and ready_to_dispatch=true.
+- Ask the user only when required test parameters, system mapping, test mapping,
+  or other execution-critical data is missing or ambiguous.
+- SSH dispatch confirmations for test runs are auto-approved by the runtime in
+  this mode. Wiki writes, Jira creates, and SSH kills are not auto-approved
+  unless full bypass mode is also enabled.
+
+Agentic preflight policy for file_exists preflights:
+1. Still run the local_check_file or ssh_check_file preflight check.
+2. If the preflight file exists, ask preflight.if_exists.ask before rerunning
+   the referenced prerequisite test.
+3. If the preflight file is missing, do NOT ask preflight.if_missing.ask; say
+   plainly that the file is missing and that you are running the referenced
+   prerequisite test, then run it.
+4. After the prerequisite test is run or intentionally skipped, do not ask
+   before_test_ask for a complete spreadsheet row in agentic mode. Continue to
+   the main test unless required data is still missing or ambiguous.`;
+
+export interface Phase3SystemMessageOptions {
+  agenticMode?: boolean;
+}
+
 export const phase1SystemMessage: SystemMessageConfig = {
   mode: "append",
   content: PHASE_1_INSTRUCTIONS,
@@ -184,7 +211,18 @@ export const phase2SystemMessage: SystemMessageConfig = {
   content: `${PHASE_1_INSTRUCTIONS}\n\n${PHASE_2_EXTRA}`,
 };
 
-export const phase3SystemMessage: SystemMessageConfig = {
-  mode: "append",
-  content: `${PHASE_1_INSTRUCTIONS}\n\n${PHASE_2_EXTRA}\n\n${PHASE_3_EXTRA}`,
-};
+export function phase3SystemMessageForMode(
+  options: Phase3SystemMessageOptions = {},
+): SystemMessageConfig {
+  return {
+    mode: "append",
+    content: [
+      PHASE_1_INSTRUCTIONS,
+      PHASE_2_EXTRA,
+      PHASE_3_EXTRA,
+      ...(options.agenticMode === true ? [AGENTIC_MODE_EXTRA] : []),
+    ].join("\n\n"),
+  };
+}
+
+export const phase3SystemMessage: SystemMessageConfig = phase3SystemMessageForMode();

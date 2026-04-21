@@ -42,46 +42,23 @@ when available to resolve test names, systems, and required args. Never run
 tests, never dispatch SSH/local commands, never write wiki pages, never create
 Jira issues, and never send Teams notifications.
 
-Return a concise human-readable plan, then include a fenced JSON block that Aura
-can parse. The JSON block must use this shape:
-\`\`\`json
-{
-  "structured_plan": {
-    "ready": [
-      {
-        "row_number": 2,
-        "test_name": "Test Z",
-        "system_name": "System A",
-        "args": { "profile": "front" },
-        "notes": "optional"
-      }
-    ],
-    "needs_input": [
-      {
-        "row_number": 3,
-        "test_name": "Test X",
-        "system_name": "System A",
-        "missing_fields": ["iterations"],
-        "question": "What iteration count should I use for row 3?",
-        "notes": "optional"
-      }
-    ],
-    "blocked": [
-      {
-        "row_number": 4,
-        "test_name": "Unknown Test",
-        "system_name": null,
-        "reason": "Test was not found in the catalog",
-        "notes": "optional"
-      }
-    ],
-    "suggested_next_action": "Ask for row 3 iterations, then run ready rows."
-  }
-}
-\`\`\`
+First read and interpret the spreadsheet exactly as a human test planner would.
+Do not let output formatting drive your interpretation.
 
-Use empty arrays when a category has no entries. Keep row_number aligned with
-spreadsheet_read's _row_number field when available.`;
+Return a concise human-readable plan with these sections:
+- Ready to run: rows/items that have test, system, and required args.
+- Needs user input: exact missing fields and the single question Aura should ask.
+- Blocked or ambiguous: unknown tests/systems or conflicting data.
+- Suggested next action: what the main Aura agent should do next.
+
+After the human-readable plan, append a fenced JSON block that mirrors the same
+plan. Do not put example or placeholder rows in the JSON. Use this contract:
+structured_plan.ready[] contains row_number, test_name, system_name, args, notes.
+structured_plan.needs_input[] contains row_number, test_name, system_name,
+missing_fields, question, notes. structured_plan.blocked[] contains row_number,
+test_name, system_name, reason, notes. structured_plan.suggested_next_action is
+a short string or null. Use empty arrays when a category has no entries. Keep
+row_number aligned with spreadsheet_read's _row_number field when available.`;
 
 export class CopilotAgentManager implements AgentManager {
   private readonly model: string | undefined;

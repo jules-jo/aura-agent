@@ -3,7 +3,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
-import { phase3SystemMessage } from "./session/system-message.js";
+import { phase3SystemMessageForMode } from "./session/system-message.js";
 import { CopilotAgentManager } from "./agents/agent-manager.js";
 import { AgentTraceStore } from "./agents/agent-trace-store.js";
 import { RunStore } from "./runs/run-store.js";
@@ -16,7 +16,7 @@ import { wikiReadOnlyTools, wikiTools } from "./tools/wiki.js";
 import { jiraConfigFromEnv, jiraTools } from "./tools/jira.js";
 import { teamsConfigFromEnv, teamsTools } from "./tools/teams.js";
 import { CredentialStore } from "./ssh/credential-store.js";
-import { ConfirmationStore } from "./ssh/confirmation-store.js";
+import { ConfirmationStore, type ConfirmationRequest } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
 import { createSsh2Client } from "./ssh/ssh-client.js";
 import { loadDotEnv } from "./config/dotenv.js";
@@ -32,7 +32,10 @@ async function main(): Promise<void> {
   loadDotEnv(process.cwd());
   const runStore = new RunStore();
   const credentials = new CredentialStore();
-  const confirmations = new ConfirmationStore({ bypass: cli.bypassPermissions });
+  const confirmations = new ConfirmationStore({
+    bypass: cli.bypassPermissions,
+    ...(cli.agenticMode ? { autoApprove: isAgenticAutoApprovedConfirmation } : {}),
+  });
   const agentTraces = new AgentTraceStore();
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
@@ -67,7 +70,7 @@ async function main(): Promise<void> {
   const session = await startSession({
     logLevel: "none",
     tools,
-    systemMessage: phase3SystemMessage,
+    systemMessage: phase3SystemMessageForMode({ agenticMode: cli.agenticMode }),
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
@@ -79,6 +82,7 @@ async function main(): Promise<void> {
       confirmations={confirmations}
       agentTraces={agentTraces}
       bypassPermissions={cli.bypassPermissions}
+      agenticMode={cli.agenticMode}
     />,
   );
   try {
@@ -88,6 +92,10 @@ async function main(): Promise<void> {
     await agentManager.close();
     await session.close();
   }
+}
+
+function isAgenticAutoApprovedConfirmation(req: ConfirmationRequest): boolean {
+  return req.kind === "ssh_dispatch";
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {

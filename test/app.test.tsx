@@ -162,6 +162,25 @@ describe("App", () => {
     expect(lastFrame() ?? "").toContain("side-effect confirmations are auto-approved");
   });
 
+  it("shows a persistent agentic banner when agentic mode is enabled", async () => {
+    const { session } = makeFakeSession();
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const { lastFrame } = render(
+      <App
+        session={session}
+        runStore={store}
+        credentials={credentials}
+        confirmations={confirmations}
+        agenticMode
+      />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("AGENTIC MODE");
+    expect(lastFrame() ?? "").toContain("complete spreadsheet rows can run without per-test approval");
+  });
+
   it("renders sidecar agent trace events in the transcript", async () => {
     const { session } = makeFakeSession();
     const store = new RunStore();

@@ -19,6 +19,7 @@ interface Props {
   confirmations: ConfirmationStore;
   agentTraces?: AgentTraceStore;
   bypassPermissions?: boolean;
+  agenticMode?: boolean;
 }
 
 type Status = "idle" | "thinking" | "error";
@@ -30,6 +31,7 @@ export function App({
   confirmations,
   agentTraces,
   bypassPermissions = false,
+  agenticMode = false,
 }: Props): React.ReactElement {
   const pendingPrompts = useSyncExternalStore<readonly PendingPrompt[]>(
     credentials.subscribe,
@@ -194,6 +196,13 @@ export function App({
       {bypassPermissions ? (
         <Box>
           <Text bold color="red">BYPASS MODE: side-effect confirmations are auto-approved.</Text>
+        </Box>
+      ) : null}
+      {agenticMode ? (
+        <Box>
+          <Text bold color="yellow">
+            AGENTIC MODE: complete spreadsheet rows can run without per-test approval.
+          </Text>
         </Box>
       ) : null}
       <Box flexDirection="row">

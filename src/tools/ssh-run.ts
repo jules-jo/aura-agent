@@ -98,6 +98,7 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
     parameters: dispatchSchema,
     handler: async (args) => {
       const approved = await options.confirmations.request({
+        kind: "ssh_dispatch",
         summary: `run on ${args.username}@${args.host}`,
         detail: args.command,
       });
@@ -232,6 +233,7 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       const entry = active.get(args.run_id);
       if (!entry) return { run_id: args.run_id, error: "run_not_found_or_inactive" };
       const approved = await options.confirmations.request({
+        kind: "ssh_kill",
         summary: `kill remote run ${args.run_id}`,
         detail: `signal ${args.signal ?? "TERM"}`,
       });

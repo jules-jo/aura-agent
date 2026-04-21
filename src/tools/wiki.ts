@@ -179,6 +179,7 @@ function buildWikiToolSet(options: WikiToolsOptions): {
     handler: async (args) => {
       if (options.confirmations) {
         const approved = await options.confirmations.request({
+          kind: "wiki_write",
           summary: `write wiki page ${args.path}`,
           detail: args.overwrite ? "overwrite existing file if present" : "create new file",
         });

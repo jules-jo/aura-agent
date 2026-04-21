@@ -1,5 +1,6 @@
 export interface AuraCliOptions {
   bypassPermissions: boolean;
+  agenticMode: boolean;
   help: boolean;
 }
 
@@ -12,6 +13,7 @@ const BYPASS_FLAGS = new Set([
 export function parseAuraCliArgs(argv: readonly string[]): AuraCliOptions {
   const options: AuraCliOptions = {
     bypassPermissions: false,
+    agenticMode: false,
     help: false,
   };
 
@@ -22,6 +24,10 @@ export function parseAuraCliArgs(argv: readonly string[]): AuraCliOptions {
     }
     if (BYPASS_FLAGS.has(arg)) {
       options.bypassPermissions = true;
+      continue;
+    }
+    if (arg === "--agentic") {
+      options.agenticMode = true;
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
@@ -35,6 +41,7 @@ export function formatAuraHelp(): string {
     "Usage: aura [options]",
     "",
     "Options:",
+    "  --agentic                                  Run complete spreadsheet rows without per-test approval; ask only for missing/ambiguous inputs.",
     "  --bypass                                   Auto-approve side-effect confirmations for this session.",
     "  --dangerously-skip-permissions             Alias for --bypass.",
     "  --dangerously-bypass-approvals-and-sandbox  Alias for --bypass.",

@@ -127,6 +127,8 @@ describe("CopilotAgentManager", () => {
     expect(startCalls[0]?.tools).toBe(fakeTools);
     expect(startCalls[0]?.systemMessage?.content).toContain("batch_planner");
     expect(startCalls[0]?.systemMessage?.content).toContain("spreadsheet_read");
+    expect(startCalls[0]?.systemMessage?.content).toContain("First read and interpret the spreadsheet");
+    expect(startCalls[0]?.systemMessage?.content).not.toContain('"Test Z"');
     expect(prompts[0]).toContain("Task:\nPlan rows");
     expect(prompts[0]).toContain("Context:\nrow 1: Test Z, System A");
     expect(closed).toBe(1);
