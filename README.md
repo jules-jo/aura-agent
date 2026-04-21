@@ -49,7 +49,7 @@ AURA_AGENTIC_SPREADSHEET_SHEET=Plan
 Then prompt Aura with:
 
 ```
-Plan from the default spreadsheet.
+Read the default spreadsheet, create a batch plan, and run the ready tests.
 ```
 
 The TUI opens with two panes (chat + run placeholder). Type a prompt, press
@@ -62,10 +62,12 @@ the repo and ask Aura to use the batch planner:
 Use the batch planner sidecar agent to read ./test-plan.xlsx and plan what tests should run.
 ```
 
-The spreadsheet reader is read-only and is currently scoped to the
-`batch_planner` sidecar agent. The planner returns a readable summary plus a
-machine-readable `structured_plan` with `ready`, `needs_input`, and `blocked`
-rows for later execution.
+The `batch_planner` sidecar reads spreadsheets and returns a readable summary
+plus a machine-readable `structured_plan` with `ready`, `needs_input`, and
+`blocked` rows. In `--agentic` mode, Aura can pass `structured_plan.ready` to
+`agentic_run_plan`, which runs ready rows sequentially and writes result columns
+such as `aura_status`, `aura_run_id`, `aura_completed_at`, `aura_summary`, and
+`aura_jira_key` back to the spreadsheet.
 
 ## Layout
 

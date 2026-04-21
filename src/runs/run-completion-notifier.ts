@@ -39,6 +39,8 @@ async function sendCompletionNotification(run: Run, options: RunCompletionNotifi
       text: summary.text,
       status,
       facts: [
+        ...(run.testName !== undefined ? [{ name: "test", value: run.testName }] : []),
+        ...(run.systemName !== undefined ? [{ name: "system", value: run.systemName }] : []),
         { name: "command", value: run.command },
         { name: "cwd", value: run.cwd },
         { name: "status", value: run.status },
@@ -50,30 +52,40 @@ async function sendCompletionNotification(run: Run, options: RunCompletionNotifi
 }
 
 function summarizeRun(run: Run, status: "passed" | "failed"): { title: string; text: string } {
+  const runLabel = formatRunLabel(run);
+  const titleStatus = status === "passed" ? "success" : "failed";
+  const bodyStatus = status === "passed" ? "passed" : "failed";
   if (run.error) {
     const error = cleanLine(run.error);
     return {
-      title: `Aura test ${status}: ${truncateOneLine(error, 90)}`,
-      text: `Run failed: ${error}`,
+      title: `Aura test ${titleStatus}: ${truncateOneLine(runLabel ?? error, 90)}`,
+      text: `${runLabel ? `${runLabel} ` : "Run "}failed: ${error}`,
     };
   }
 
   const output = summarizeOutput(run);
   if (output) {
     return {
-      title: `Aura test ${status}: ${truncateOneLine(output.title, 90)}`,
-      text: [`Test ${status}.`, "", "Output summary:", ...output.lines].join("\n"),
+      title: `Aura test ${titleStatus}: ${truncateOneLine(runLabel ?? output.title, 90)}`,
+      text: [`Test ${runLabel ? `${runLabel} ` : ""}${bodyStatus}.`, "", "Output summary:", ...output.lines].join(
+        "\n",
+      ),
     };
   }
 
   const exitText =
     run.exitCode !== undefined
-      ? `Test ${status} with exit code ${run.exitCode}.`
-      : `Test ${status} with unknown exit code.`;
+      ? `Test ${runLabel ? `${runLabel} ` : ""}${bodyStatus} with exit code ${run.exitCode}.`
+      : `Test ${runLabel ? `${runLabel} ` : ""}${bodyStatus} with unknown exit code.`;
   return {
-    title: `Aura test ${status}`,
+    title: `Aura test ${titleStatus}${runLabel ? `: ${truncateOneLine(runLabel, 90)}` : ""}`,
     text: exitText,
   };
+}
+
+function formatRunLabel(run: Run): string | null {
+  if (!run.testName) return null;
+  return run.systemName ? `${run.testName} on ${run.systemName}` : run.testName;
 }
 
 function summarizeOutput(run: Run): { title: string; lines: string[] } | null {

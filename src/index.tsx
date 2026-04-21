@@ -10,6 +10,7 @@ import { RunStore } from "./runs/run-store.js";
 import { startRunCompletionNotifier } from "./runs/run-completion-notifier.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
+import { agenticRunPlanTools } from "./tools/agentic-run-plan.js";
 import { agentTools } from "./tools/agents.js";
 import { spreadsheetTools } from "./tools/spreadsheet.js";
 import { wikiReadOnlyTools, wikiTools } from "./tools/wiki.js";
@@ -56,10 +57,18 @@ async function main(): Promise<void> {
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
+  const localTools = localRunTools(runStore, { defaultCwd: process.cwd() });
+  const sshTools = sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth });
   const tools = [
     ...agentTools(agentManager, { traces: agentTraces }),
-    ...localRunTools(runStore, { defaultCwd: process.cwd() }),
-    ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
+    ...agenticRunPlanTools({
+      rootDir: process.cwd(),
+      confirmations,
+      localTools,
+      sshTools,
+    }),
+    ...localTools,
+    ...sshTools,
     ...wikiTools({ rootDir: process.cwd(), confirmations }),
     ...jiraTools({
       confirmations,
@@ -101,7 +110,7 @@ async function main(): Promise<void> {
 }
 
 function isAgenticAutoApprovedConfirmation(req: ConfirmationRequest): boolean {
-  return req.kind === "ssh_dispatch";
+  return req.kind === "ssh_dispatch" || req.kind === "spreadsheet_write";
 }
 
 function parsePositiveInt(value: string | undefined): number | undefined {

@@ -97,11 +97,17 @@ describe("ssh-run tools", () => {
       username: "u",
       credential_id: "c1",
       command: "echo hi",
+      test_name: "Remote Smoke",
+      system_name: "Bench A",
     });
     expect(result.run_id).toBeDefined();
     const persisted = await runStateStore.read(result.run_id);
     expect(persisted?.host).toBe("h.example");
     expect(persisted?.command).toBe("echo hi");
+    expect(persisted?.testName).toBe("Remote Smoke");
+    expect(persisted?.systemName).toBe("Bench A");
+    expect(store.get(result.run_id)?.testName).toBe("Remote Smoke");
+    expect(store.get(result.run_id)?.systemName).toBe("Bench A");
     expect(calls.some((c) => c.includes("dispatch_ok"))).toBe(true);
 
     // allow poll loop to see STATE=stopped and persist markComplete
@@ -475,6 +481,8 @@ describe("ssh-run tools", () => {
       port: 22,
       username: "root",
       command: "sleep 60 && echo done",
+      testName: "Long Test",
+      systemName: "Bench A",
       remoteBase: "~/.aura/runs",
       remotePidPath: "~/.aura/runs/prev-run/pid",
       remoteLogPath: "~/.aura/runs/prev-run/output.log",
@@ -514,6 +522,8 @@ describe("ssh-run tools", () => {
     expect(persisted?.status).toBe("completed");
     const inMemory = store.get("prev-run");
     expect(inMemory?.status).toBe("completed");
+    expect(inMemory?.testName).toBe("Long Test");
+    expect(inMemory?.systemName).toBe("Bench A");
   });
 
   it("ssh_dispatch forgets the cached password and re-prompts once when auth fails", async () => {

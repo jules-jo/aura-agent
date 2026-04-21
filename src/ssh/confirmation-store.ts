@@ -6,7 +6,13 @@ export interface PendingConfirmation {
   resolve: (approved: boolean) => void;
 }
 
-export type ConfirmationKind = "ssh_dispatch" | "ssh_kill" | "wiki_write" | "jira_create";
+export type ConfirmationKind =
+  | "ssh_dispatch"
+  | "ssh_kill"
+  | "wiki_write"
+  | "jira_create"
+  | "spreadsheet_write"
+  | "agentic_preflight";
 
 export interface ConfirmationRequest {
   kind?: ConfirmationKind;

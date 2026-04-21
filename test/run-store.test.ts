@@ -4,8 +4,16 @@ import { RunStore } from "../src/runs/run-store.js";
 describe("RunStore", () => {
   it("creates a run with running status and no iterations", () => {
     const store = new RunStore();
-    const run = store.createRun({ command: "echo hi", cwd: "/tmp", iterationSize: 5 });
+    const run = store.createRun({
+      command: "echo hi",
+      cwd: "/tmp",
+      testName: "Smoke Test",
+      systemName: "Bench A",
+      iterationSize: 5,
+    });
     expect(run.status).toBe("running");
+    expect(run.testName).toBe("Smoke Test");
+    expect(run.systemName).toBe("Bench A");
     expect(run.iterations).toEqual([]);
     expect(run.iterationSize).toBe(5);
     expect(store.getActive()?.id).toBe(run.id);

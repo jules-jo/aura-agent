@@ -18,6 +18,15 @@ describe("phase3SystemMessageForMode", () => {
     expect(message).toContain("Do not ask to file Jira for successful runs");
   });
 
+  it("instructs catalog test dispatches to include test/system names", () => {
+    const message = phase3SystemMessageForMode().content;
+
+    expect(message).toContain("include test_name and system_name");
+    expect(message).toContain("completion notifications can identify the test");
+    expect(message).toContain("passing command/cwd/env plus test_name and system_name");
+    expect(message).toContain("cwd/env/command plus test_name and system_name");
+  });
+
   it("adds agentic execution and preflight policy when enabled", () => {
     const message = phase3SystemMessageForMode({ agenticMode: true }).content;
 
@@ -26,7 +35,10 @@ describe("phase3SystemMessageForMode", () => {
     expect(message).toContain("After agent_delegate returns a structured_plan with ready rows");
     expect(message).toContain("do not ask the user to say \"run it\"");
     expect(message).toContain("Execute the ready rows sequentially");
-    expect(message).toContain("Poll each run to completion before moving to the next ready row");
+    expect(message).toContain("call agentic_run_plan with");
+    expect(message).toContain("Let agentic_run_plan resolve, preflight, dispatch, poll to completion");
+    expect(message).toContain("Spreadsheet result write-back is also auto-approved");
+    expect(message).toContain("agentic_record_jira_key");
     expect(message).toContain("If the preflight file is missing");
     expect(message).toContain("do NOT ask preflight.if_missing.ask");
     expect(message).toContain("If the preflight file exists");
@@ -46,5 +58,6 @@ describe("phase3SystemMessageForMode", () => {
     expect(message).toContain("Path: ./test-plan.xlsx");
     expect(message).toContain("Sheet: Plan");
     expect(message).toContain("default spreadsheet");
+    expect(message).toContain("pass this same path and sheet");
   });
 });

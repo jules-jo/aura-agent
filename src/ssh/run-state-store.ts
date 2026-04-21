@@ -10,6 +10,8 @@ export interface RunStateRecord {
   credentialId?: string;
   command: string;
   cwd?: string;
+  testName?: string;
+  systemName?: string;
   remoteBase: string;
   remotePidPath: string;
   remoteLogPath: string;

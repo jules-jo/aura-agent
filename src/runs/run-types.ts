@@ -10,6 +10,8 @@ export interface Run {
   id: string;
   command: string;
   cwd: string;
+  testName?: string;
+  systemName?: string;
   status: RunStatus;
   startedAt: string;
   completedAt?: string;
@@ -23,5 +25,7 @@ export interface Run {
 export interface CreateRunInput {
   command: string;
   cwd: string;
+  testName?: string;
+  systemName?: string;
   iterationSize?: number;
 }

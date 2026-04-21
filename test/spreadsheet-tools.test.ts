@@ -8,7 +8,7 @@ vi.mock("@github/copilot-sdk", () => ({
   defineTool: (name: string, config: Record<string, unknown>) => ({ name, ...config }),
 }));
 
-const { readSpreadsheet, spreadsheetTools } = await import("../src/tools/spreadsheet.js");
+const { readSpreadsheet, spreadsheetTools, writeSpreadsheetUpdates } = await import("../src/tools/spreadsheet.js");
 
 function callHandler<T = unknown>(
   tools: ReturnType<typeof spreadsheetTools>,
@@ -109,6 +109,45 @@ describe("spreadsheet tools", () => {
     expect(result.row_count).toBe(3);
     expect(result.returned_rows).toBe(2);
     expect(result.truncated).toBe(true);
+  });
+
+  it("writes result columns into a selected XLSX sheet", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Plan");
+    sheet.addRow(["Test Name", "System Name"]);
+    sheet.addRow(["Test Z", "System A"]);
+    await workbook.xlsx.writeFile(path.join(rootDir, "plan.xlsx"));
+
+    const write = await writeSpreadsheetUpdates(rootDir, {
+      path: "plan.xlsx",
+      sheetName: "Plan",
+      updates: [
+        {
+          rowNumber: 2,
+          values: {
+            aura_status: "success",
+            aura_run_id: "run-1",
+            aura_summary: "passed",
+          },
+        },
+      ],
+    });
+
+    expect(write).toMatchObject({
+      path: "plan.xlsx",
+      format: "xlsx",
+      sheet_name: "Plan",
+      updated_rows: [2],
+      updated_columns: ["aura_status", "aura_run_id", "aura_summary"],
+    });
+    const result = await readSpreadsheet(rootDir, { path: "plan.xlsx", sheetName: "Plan" });
+    expect(result.rows[0]).toMatchObject({
+      test_name: "Test Z",
+      system_name: "System A",
+      aura_status: "success",
+      aura_run_id: "run-1",
+      aura_summary: "passed",
+    });
   });
 
   it("returns structured errors from spreadsheet_read", async () => {

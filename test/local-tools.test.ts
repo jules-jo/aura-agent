@@ -68,12 +68,22 @@ describe("local-run tools", () => {
     const fake = makeFakeChild();
     const spawner: Spawner = () => fake.child;
     const tools = localRunTools(store, { defaultCwd: "/tmp", spawner });
-    const result = await callHandler<{ run_id: string; command: string }>(tools, "local_dispatch", {
-      command: "echo hi",
-      iteration_lines: 2,
-    });
+    const result = await callHandler<{ run_id: string; command: string; test_name: string; system_name: string }>(
+      tools,
+      "local_dispatch",
+      {
+        command: "echo hi",
+        test_name: "Smoke Test",
+        system_name: "Local Host",
+        iteration_lines: 2,
+      },
+    );
     expect(result.command).toBe("echo hi");
+    expect(result.test_name).toBe("Smoke Test");
+    expect(result.system_name).toBe("Local Host");
     expect(store.get(result.run_id)?.status).toBe("running");
+    expect(store.get(result.run_id)?.testName).toBe("Smoke Test");
+    expect(store.get(result.run_id)?.systemName).toBe("Local Host");
     fake.emitStdout("line 1\nline 2\nline 3\n");
     fake.close(0);
     const snap = store.get(result.run_id);

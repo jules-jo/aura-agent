@@ -41,6 +41,8 @@ export class RunStore {
       id,
       command: input.command,
       cwd: input.cwd,
+      ...(input.testName !== undefined ? { testName: input.testName } : {}),
+      ...(input.systemName !== undefined ? { systemName: input.systemName } : {}),
       status: "running",
       startedAt: new Date().toISOString(),
       iterations: [],
@@ -54,10 +56,20 @@ export class RunStore {
     return this.commit(run);
   }
 
-  adoptRun(input: { id: string; command: string; cwd: string; startedAt: string; iterationSize?: number }): Run {
+  adoptRun(input: {
+    id: string;
+    command: string;
+    cwd: string;
+    startedAt: string;
+    testName?: string;
+    systemName?: string;
+    iterationSize?: number;
+  }): Run {
     const existing = this.runs.get(input.id);
     if (existing) {
       existing.status = "running";
+      if (input.testName !== undefined) existing.testName = input.testName;
+      if (input.systemName !== undefined) existing.systemName = input.systemName;
       delete existing.completedAt;
       delete existing.exitCode;
       delete existing.error;
@@ -68,6 +80,8 @@ export class RunStore {
       id: input.id,
       command: input.command,
       cwd: input.cwd,
+      ...(input.testName !== undefined ? { testName: input.testName } : {}),
+      ...(input.systemName !== undefined ? { systemName: input.systemName } : {}),
       status: "running",
       startedAt: input.startedAt,
       iterations: [],
@@ -163,6 +177,8 @@ function snapshot(run: InternalRun): Run {
     id: run.id,
     command: run.command,
     cwd: run.cwd,
+    ...(run.testName !== undefined ? { testName: run.testName } : {}),
+    ...(run.systemName !== undefined ? { systemName: run.systemName } : {}),
     status: run.status as RunStatus,
     startedAt: run.startedAt,
     ...(run.completedAt !== undefined ? { completedAt: run.completedAt } : {}),

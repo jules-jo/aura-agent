@@ -28,7 +28,12 @@ describe("RunCompletionNotifier", () => {
       teams: { webhookUrl: "https://teams.example/webhook" },
     });
 
-    const run = store.createRun({ command: "npm test", cwd: "/repo" });
+    const run = store.createRun({
+      command: "npm test",
+      cwd: "/repo",
+      testName: "Local Vitest",
+      systemName: "Dev Box",
+    });
     store.appendLines(run.id, [
       " Test Files  23 passed (23)",
       "      Tests  144 passed (144)",
@@ -43,14 +48,18 @@ describe("RunCompletionNotifier", () => {
     expect(recorder.calls()).toHaveLength(1);
     expect(recorder.calls()[0]?.url).toBe("https://teams.example/webhook");
     expect(recorder.calls()[0]?.body).toMatchObject({
-      title: "Aura test passed: Tests 144 passed (144)",
-      text: "Test passed.\n\nOutput summary:\nTest Files 23 passed (23)\nTests 144 passed (144)\nDuration 1.09s",
+      title: "Aura test success: Local Vitest on Dev Box",
+      text: "Test Local Vitest on Dev Box passed.\n\nOutput summary:\nTest Files 23 passed (23)\nTests 144 passed (144)\nDuration 1.09s",
       themeColor: "2EB886",
     });
     expect(recorder.calls()[0]?.body).toMatchObject({
       sections: [
         {
-          facts: expect.arrayContaining([{ name: "command", value: "npm test" }]),
+          facts: expect.arrayContaining([
+            { name: "test", value: "Local Vitest" },
+            { name: "system", value: "Dev Box" },
+            { name: "command", value: "npm test" },
+          ]),
         },
       ],
     });
@@ -64,15 +73,15 @@ describe("RunCompletionNotifier", () => {
       teams: { webhookUrl: "https://teams.example/webhook" },
     });
 
-    const run = store.createRun({ command: "pytest", cwd: "/repo" });
+    const run = store.createRun({ command: "pytest", cwd: "/repo", testName: "API Regression" });
     store.failRun(run.id, "assertion failed");
     await flushMicrotasks();
     notifier.close();
 
     expect(recorder.calls()).toHaveLength(1);
     expect(recorder.calls()[0]?.body).toMatchObject({
-      title: "Aura test failed: assertion failed",
-      text: "Run failed: assertion failed",
+      title: "Aura test failed: API Regression",
+      text: "API Regression failed: assertion failed",
       themeColor: "D13438",
     });
   });
@@ -92,7 +101,7 @@ describe("RunCompletionNotifier", () => {
 
     expect(recorder.calls()).toHaveLength(1);
     expect(recorder.calls()[0]?.body).toMatchObject({
-      title: "Aura test passed",
+      title: "Aura test success",
       text: "Test passed with exit code 0.",
     });
   });

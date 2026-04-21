@@ -31,6 +31,8 @@ const dispatchSchema = z.object({
   port: z.number().int().positive().max(65535).optional(),
   cwd: z.string().optional().describe("Working directory on the remote host."),
   env: z.record(z.string(), z.string()).optional().describe("Extra environment variables."),
+  test_name: z.string().min(1).optional().describe("Resolved test name when dispatching a catalog test."),
+  system_name: z.string().min(1).optional().describe("Resolved system name when dispatching a catalog test."),
   iteration_lines: z.number().int().positive().max(200).optional(),
   remote_base: z.string().optional().describe("Override the remote run directory base."),
 });
@@ -129,6 +131,8 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
       const run = store.createRun({
         command: args.command,
         cwd: args.cwd ?? `${args.username}@${args.host}`,
+        ...(args.test_name !== undefined ? { testName: args.test_name } : {}),
+        ...(args.system_name !== undefined ? { systemName: args.system_name } : {}),
         ...(args.iteration_lines !== undefined ? { iterationSize: args.iteration_lines } : {}),
       });
       const remoteBase = args.remote_base ?? DEFAULT_REMOTE_BASE;
@@ -141,6 +145,8 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         ...(args.credential_id !== undefined ? { credentialId: args.credential_id } : {}),
         command: args.command,
         ...(args.cwd !== undefined ? { cwd: args.cwd } : {}),
+        ...(args.test_name !== undefined ? { testName: args.test_name } : {}),
+        ...(args.system_name !== undefined ? { systemName: args.system_name } : {}),
         remoteBase,
         remotePidPath: paths.pidPath,
         remoteLogPath: paths.logPath,
@@ -189,6 +195,8 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         host: args.host,
         username: args.username,
         command: args.command,
+        ...(run.testName !== undefined ? { test_name: run.testName } : {}),
+        ...(run.systemName !== undefined ? { system_name: run.systemName } : {}),
         remote_log: paths.logPath,
         remote_pid_file: paths.pidPath,
         started_at: run.startedAt,
@@ -287,6 +295,8 @@ export function sshRunTools(store: RunStore, options: SshToolsOptions): Tool<any
         command: record.command,
         cwd: record.cwd ?? `${record.username}@${record.host}`,
         startedAt: record.startedAt,
+        ...(record.testName !== undefined ? { testName: record.testName } : {}),
+        ...(record.systemName !== undefined ? { systemName: record.systemName } : {}),
       });
       const tail = buildTailScript({
         remoteBase: record.remoteBase,

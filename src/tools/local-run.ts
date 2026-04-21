@@ -26,6 +26,8 @@ const dispatchSchema = z.object({
   command: z.string().min(1).describe("Shell command to execute."),
   cwd: z.string().optional().describe("Working directory. Defaults to the TUI cwd."),
   env: z.record(z.string(), z.string()).optional().describe("Extra environment variables."),
+  test_name: z.string().min(1).optional().describe("Resolved test name when dispatching a catalog test."),
+  system_name: z.string().min(1).optional().describe("Resolved system name when dispatching a catalog test."),
   iteration_lines: z
     .number()
     .int()
@@ -74,6 +76,8 @@ export function localRunTools(store: RunStore, options: LocalToolsOptions): Tool
       const run = store.createRun({
         command: args.command,
         cwd,
+        ...(args.test_name !== undefined ? { testName: args.test_name } : {}),
+        ...(args.system_name !== undefined ? { systemName: args.system_name } : {}),
         ...(args.iteration_lines !== undefined ? { iterationSize: args.iteration_lines } : {}),
       });
       const child = spawner({
@@ -86,6 +90,8 @@ export function localRunTools(store: RunStore, options: LocalToolsOptions): Tool
         run_id: run.id,
         command: run.command,
         cwd: run.cwd,
+        ...(run.testName !== undefined ? { test_name: run.testName } : {}),
+        ...(run.systemName !== undefined ? { system_name: run.systemName } : {}),
         started_at: run.startedAt,
       };
     },

@@ -46,6 +46,25 @@ export interface SpreadsheetReadResult {
   truncated: boolean;
 }
 
+export interface SpreadsheetWriteUpdate {
+  rowNumber: number;
+  values: Record<string, SpreadsheetCellValue>;
+}
+
+export interface SpreadsheetWriteOptions {
+  path: string;
+  sheetName?: string;
+  updates: SpreadsheetWriteUpdate[];
+}
+
+export interface SpreadsheetWriteResult {
+  path: string;
+  format: "csv" | "tsv" | "xlsx";
+  sheet_name: string | null;
+  updated_rows: number[];
+  updated_columns: string[];
+}
+
 export function spreadsheetTools(options: SpreadsheetToolsOptions): Tool<any>[] {
   const readTool = defineTool("spreadsheet_read", {
     description:
@@ -98,6 +117,60 @@ export async function readSpreadsheet(
 
   if (ext === ".xlsx") {
     return readXlsx(repoPath, absolutePath, options.sheetName, maxRows);
+  }
+
+  throw new Error("unsupported spreadsheet format; expected .csv, .tsv, or .xlsx");
+}
+
+export async function writeSpreadsheetUpdates(
+  rootDir: string,
+  options: SpreadsheetWriteOptions,
+): Promise<SpreadsheetWriteResult> {
+  const repoPath = normalizeRepoPath(options.path);
+  const absolutePath = resolveRepoPath(rootDir, repoPath);
+  const ext = path.extname(repoPath).toLowerCase();
+  if (options.updates.length === 0) {
+    throw new Error("at least one spreadsheet update is required");
+  }
+
+  if (ext === ".csv" || ext === ".tsv") {
+    const delimiter = ext === ".csv" ? "," : "\t";
+    const raw = await fs.readFile(absolutePath, "utf8");
+    const table = parseDelimited(raw, delimiter);
+    const result = applyTableUpdates(table, options.updates);
+    await fs.writeFile(absolutePath, serializeDelimited(table, delimiter), "utf8");
+    return {
+      path: repoPath,
+      format: ext === ".csv" ? "csv" : "tsv",
+      sheet_name: null,
+      updated_rows: result.updatedRows,
+      updated_columns: result.updatedColumns,
+    };
+  }
+
+  if (ext === ".xlsx") {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(absolutePath);
+    const worksheet = options.sheetName
+      ? workbook.getWorksheet(options.sheetName)
+      : workbook.worksheets[0];
+    if (!worksheet) {
+      const sheetNames = workbook.worksheets.map((sheet) => sheet.name);
+      throw new Error(
+        options.sheetName
+          ? `sheet not found: ${options.sheetName}; available sheets: ${sheetNames.join(", ")}`
+          : "workbook has no worksheets",
+      );
+    }
+    const result = applyWorksheetUpdates(worksheet, options.updates);
+    await workbook.xlsx.writeFile(absolutePath);
+    return {
+      path: repoPath,
+      format: "xlsx",
+      sheet_name: worksheet.name,
+      updated_rows: result.updatedRows,
+      updated_columns: result.updatedColumns,
+    };
   }
 
   throw new Error("unsupported spreadsheet format; expected .csv, .tsv, or .xlsx");
@@ -230,6 +303,17 @@ function parseDelimited(raw: string, delimiter: "," | "\t"): SpreadsheetCellValu
   return rows.map((cells) => cells.map((value) => normalizeScalar(value)));
 }
 
+function serializeDelimited(table: readonly SpreadsheetCellValue[][], delimiter: "," | "\t"): string {
+  return `${table.map((row) => row.map((value) => serializeDelimitedCell(value, delimiter)).join(delimiter)).join("\n")}\n`;
+}
+
+function serializeDelimitedCell(value: SpreadsheetCellValue, delimiter: "," | "\t"): string {
+  if (value === null) return "";
+  const raw = String(value);
+  if (!raw.includes(delimiter) && !/["\r\n]/.test(raw)) return raw;
+  return `"${raw.replace(/"/g, "\"\"")}"`;
+}
+
 function normalizeCellValue(value: ExcelJS.CellValue): SpreadsheetCellValue {
   if (value === null || value === undefined) return null;
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return value;
@@ -264,6 +348,126 @@ function normalizeColumnKey(value: string): string {
 
 function normalizeRepoPath(repoPath: string): string {
   return repoPath.trim().replace(/\\/g, "/").replace(/^\.\/+/, "");
+}
+
+function applyTableUpdates(
+  table: SpreadsheetCellValue[][],
+  updates: readonly SpreadsheetWriteUpdate[],
+): { updatedRows: number[]; updatedColumns: string[] } {
+  if (table.length === 0 || !table[0] || table[0].length === 0) {
+    throw new Error("spreadsheet must contain a header row before results can be written");
+  }
+  const header = table[0];
+  const columns = ensureColumns(header, uniqueUpdateColumns(updates));
+  const updatedRows: number[] = [];
+
+  for (const update of updates) {
+    assertWritableRow(update.rowNumber);
+    const tableIndex = update.rowNumber - 1;
+    while (table.length <= tableIndex) table.push([]);
+    const row = table[tableIndex] ?? [];
+    table[tableIndex] = row;
+    while (row.length < header.length) row.push(null);
+    for (const [name, value] of Object.entries(update.values)) {
+      const columnIndex = columns.get(normalizeColumnKey(name));
+      if (columnIndex === undefined) continue;
+      row[columnIndex - 1] = value;
+    }
+    updatedRows.push(update.rowNumber);
+  }
+
+  return {
+    updatedRows,
+    updatedColumns: [...uniqueUpdateColumns(updates)],
+  };
+}
+
+function applyWorksheetUpdates(
+  worksheet: ExcelJS.Worksheet,
+  updates: readonly SpreadsheetWriteUpdate[],
+): { updatedRows: number[]; updatedColumns: string[] } {
+  const header = worksheet.getRow(1);
+  if (header.cellCount === 0) {
+    throw new Error("spreadsheet must contain a header row before results can be written");
+  }
+  const columns = ensureWorksheetColumns(header, uniqueUpdateColumns(updates));
+  const updatedRows: number[] = [];
+
+  for (const update of updates) {
+    assertWritableRow(update.rowNumber);
+    const row = worksheet.getRow(update.rowNumber);
+    for (const [name, value] of Object.entries(update.values)) {
+      const columnIndex = columns.get(normalizeColumnKey(name));
+      if (columnIndex === undefined) continue;
+      row.getCell(columnIndex).value = value;
+    }
+    row.commit();
+    updatedRows.push(update.rowNumber);
+  }
+  header.commit();
+
+  return {
+    updatedRows,
+    updatedColumns: [...uniqueUpdateColumns(updates)],
+  };
+}
+
+function ensureColumns(
+  header: SpreadsheetCellValue[],
+  columnNames: readonly string[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  header.forEach((value, index) => {
+    const key = normalizeColumnKey(stringifyHeader(value));
+    if (key && !out.has(key)) out.set(key, index + 1);
+  });
+  for (const name of columnNames) {
+    const key = normalizeColumnKey(name);
+    if (!key || out.has(key)) continue;
+    header.push(name);
+    out.set(key, header.length);
+  }
+  return out;
+}
+
+function ensureWorksheetColumns(
+  header: ExcelJS.Row,
+  columnNames: readonly string[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (let i = 1; i <= header.cellCount; i += 1) {
+    const key = normalizeColumnKey(stringifyHeader(normalizeCellValue(header.getCell(i).value)));
+    if (key && !out.has(key)) out.set(key, i);
+  }
+  let nextColumn = header.cellCount + 1;
+  for (const name of columnNames) {
+    const key = normalizeColumnKey(name);
+    if (!key || out.has(key)) continue;
+    header.getCell(nextColumn).value = name;
+    out.set(key, nextColumn);
+    nextColumn += 1;
+  }
+  return out;
+}
+
+function uniqueUpdateColumns(updates: readonly SpreadsheetWriteUpdate[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const update of updates) {
+    for (const name of Object.keys(update.values)) {
+      const key = normalizeColumnKey(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+function assertWritableRow(rowNumber: number): void {
+  if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+    throw new Error("spreadsheet row_number must point to a data row (2 or greater)");
+  }
 }
 
 function classifySpreadsheetError(err: unknown): string {
