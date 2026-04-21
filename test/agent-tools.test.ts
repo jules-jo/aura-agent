@@ -25,7 +25,24 @@ describe("agent tools", () => {
     const manager: AgentManager = {
       run: async (task) => {
         calls.push(task);
-        return { role: task.role, output: "ready rows: 1" };
+        return {
+          role: task.role,
+          output: "ready rows: 1",
+          structured_plan: {
+            ready: [
+              {
+                row_number: 1,
+                test_name: "Test Z",
+                system_name: "System A",
+                args: { profile: "front" },
+                notes: null,
+              },
+            ],
+            needs_input: [],
+            blocked: [],
+            suggested_next_action: "Run row 1.",
+          },
+        };
       },
       close: async () => {
         // no-op
@@ -40,7 +57,24 @@ describe("agent tools", () => {
       context: "row 1: Test Z on System A",
     });
 
-    expect(result).toEqual({ role: "batch_planner", output: "ready rows: 1" });
+    expect(result).toEqual({
+      role: "batch_planner",
+      output: "ready rows: 1",
+      structured_plan: {
+        ready: [
+          {
+            row_number: 1,
+            test_name: "Test Z",
+            system_name: "System A",
+            args: { profile: "front" },
+            notes: null,
+          },
+        ],
+        needs_input: [],
+        blocked: [],
+        suggested_next_action: "Run row 1.",
+      },
+    });
     expect(calls).toEqual([
       {
         role: "batch_planner",

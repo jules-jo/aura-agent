@@ -103,7 +103,10 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   sheet names, and any row/column expectations in the delegated task/context.
   The sidecar can read spreadsheets and inspect wiki/catalog data but cannot run
   tests or perform side effects. Treat its output as planning advice; you remain
-  responsible for user-facing decisions and any actual dispatch.
+  responsible for user-facing decisions and any actual dispatch. If the returned
+  tool result includes structured_plan, use that object rather than reparsing
+  the prose summary. If structured_plan_error is present, explain that the
+  sidecar did not return a machine-readable plan and fall back to the text plan.
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:

@@ -1,6 +1,8 @@
 import type { CopilotClientOptions, Tool } from "@github/copilot-sdk";
 import type { AssistantEvent, AuraSession, StartSessionOptions } from "../session/copilot.js";
 import { startSession as defaultStartSession } from "../session/copilot.js";
+import { parseBatchPlanOutput } from "./batch-plan.js";
+import type { BatchPlan } from "./batch-plan.js";
 
 export const agentRoles = ["batch_planner"] as const;
 export type AgentRole = (typeof agentRoles)[number];
@@ -15,6 +17,8 @@ export interface AgentResult {
   role: AgentRole;
   output: string;
   error?: string;
+  structured_plan?: BatchPlan;
+  structured_plan_error?: string;
 }
 
 export interface AgentManager {
@@ -38,11 +42,46 @@ when available to resolve test names, systems, and required args. Never run
 tests, never dispatch SSH/local commands, never write wiki pages, never create
 Jira issues, and never send Teams notifications.
 
-Return a concise plan with these sections:
-- Ready to run: rows/items that have test, system, and required args.
-- Needs user input: exact missing fields and the single question Aura should ask.
-- Blocked or ambiguous: unknown tests/systems or conflicting data.
-- Suggested next action: what the main Aura agent should do next.`;
+Return a concise human-readable plan, then include a fenced JSON block that Aura
+can parse. The JSON block must use this shape:
+\`\`\`json
+{
+  "structured_plan": {
+    "ready": [
+      {
+        "row_number": 2,
+        "test_name": "Test Z",
+        "system_name": "System A",
+        "args": { "profile": "front" },
+        "notes": "optional"
+      }
+    ],
+    "needs_input": [
+      {
+        "row_number": 3,
+        "test_name": "Test X",
+        "system_name": "System A",
+        "missing_fields": ["iterations"],
+        "question": "What iteration count should I use for row 3?",
+        "notes": "optional"
+      }
+    ],
+    "blocked": [
+      {
+        "row_number": 4,
+        "test_name": "Unknown Test",
+        "system_name": null,
+        "reason": "Test was not found in the catalog",
+        "notes": "optional"
+      }
+    ],
+    "suggested_next_action": "Ask for row 3 iterations, then run ready rows."
+  }
+}
+\`\`\`
+
+Use empty arrays when a category has no entries. Keep row_number aligned with
+spreadsheet_read's _row_number field when available.`;
 
 export class CopilotAgentManager implements AgentManager {
   private readonly model: string | undefined;
@@ -75,10 +114,15 @@ export class CopilotAgentManager implements AgentManager {
       this.activeSessions.add(session);
       try {
         const result = await sendAndCollect(session, composeAgentPrompt(task));
+        const parsedPlan = task.role === "batch_planner" && result.error === undefined
+          ? parseBatchPlanOutput(result.output)
+          : undefined;
         return {
           role: task.role,
           output: result.output,
           ...(result.error !== undefined ? { error: result.error } : {}),
+          ...(parsedPlan?.structuredPlan !== undefined ? { structured_plan: parsedPlan.structuredPlan } : {}),
+          ...(parsedPlan?.error !== undefined ? { structured_plan_error: parsedPlan.error } : {}),
         };
       } finally {
         this.activeSessions.delete(session);

@@ -43,7 +43,9 @@ Use the batch planner sidecar agent to read ./test-plan.xlsx and plan what tests
 ```
 
 The spreadsheet reader is read-only and is currently scoped to the
-`batch_planner` sidecar agent.
+`batch_planner` sidecar agent. The planner returns a readable summary plus a
+machine-readable `structured_plan` with `ready`, `needs_input`, and `blocked`
+rows for later execution.
 
 ## Layout
 

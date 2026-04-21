@@ -67,7 +67,30 @@ describe("CopilotAgentManager", () => {
         return makeFakeSession(
           async (prompt, emit) => {
             prompts.push(prompt);
-            emit({ kind: "final", text: "Ready to run: row 1" });
+            emit({
+              kind: "final",
+              text: [
+                "Ready to run: row 1",
+                "",
+                "```json",
+                JSON.stringify({
+                  structured_plan: {
+                    ready: [
+                      {
+                        row_number: 1,
+                        test_name: "Test Z",
+                        system_name: "System A",
+                        args: { profile: "front" },
+                      },
+                    ],
+                    needs_input: [],
+                    blocked: [],
+                    suggested_next_action: "Run row 1.",
+                  },
+                }),
+                "```",
+              ].join("\n"),
+            });
           },
           () => {
             closed += 1;
@@ -82,7 +105,22 @@ describe("CopilotAgentManager", () => {
       context: "row 1: Test Z, System A",
     });
 
-    expect(result).toEqual({ role: "batch_planner", output: "Ready to run: row 1" });
+    expect(result.role).toBe("batch_planner");
+    expect(result.output).toContain("Ready to run: row 1");
+    expect(result.structured_plan).toEqual({
+      ready: [
+        {
+          row_number: 1,
+          test_name: "Test Z",
+          system_name: "System A",
+          args: { profile: "front" },
+          notes: null,
+        },
+      ],
+      needs_input: [],
+      blocked: [],
+      suggested_next_action: "Run row 1.",
+    });
     expect(startCalls[0]?.model).toBe("claude-opus-4.6");
     expect(startCalls[0]?.logLevel).toBe("none");
     expect(startCalls[0]?.idleTimeoutMs).toBe(123);
@@ -114,6 +152,27 @@ describe("CopilotAgentManager", () => {
       output: "",
       error: "model unavailable",
     });
+  });
+
+  it("returns a structured plan error when the sidecar omits machine-readable JSON", async () => {
+    const manager = new CopilotAgentManager({
+      startSession: async () =>
+        makeFakeSession(
+          async (_prompt, emit) => {
+            emit({ kind: "final", text: "Ready to run: row 1" });
+          },
+          () => {
+            // no-op
+          },
+        ),
+    });
+
+    const result = await manager.run({ role: "batch_planner", task: "Plan rows" });
+
+    expect(result.role).toBe("batch_planner");
+    expect(result.output).toBe("Ready to run: row 1");
+    expect(result.structured_plan).toBeUndefined();
+    expect(result.structured_plan_error).toContain("did not include");
   });
 
   it("formats prompts with optional context", () => {
