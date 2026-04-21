@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineTool } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
 import type { AgentManager } from "../agents/agent-manager.js";
+import type { AgentTraceStore } from "../agents/agent-trace-store.js";
 
 const agentDelegateSchema = z.object({
   role: z
@@ -11,17 +12,38 @@ const agentDelegateSchema = z.object({
   context: z.string().min(1).optional().describe("Optional relevant user request, rows, or catalog context."),
 });
 
-export function agentTools(manager: AgentManager): Tool<any>[] {
+export interface AgentToolsOptions {
+  traces?: AgentTraceStore;
+}
+
+export function agentTools(manager: AgentManager, options: AgentToolsOptions = {}): Tool<any>[] {
   const delegateTool = defineTool("agent_delegate", {
     description:
       "Delegate a bounded read-only planning task to a sidecar Aura agent. Use batch_planner for spreadsheet or batch-test planning. The sidecar does not run tests or make side effects.",
     parameters: agentDelegateSchema,
     handler: async (args) => {
-      return manager.run({
-        role: args.role,
-        task: args.task,
-        ...(args.context !== undefined ? { context: args.context } : {}),
-      });
+      options.traces?.record({ role: args.role, status: "started" });
+      try {
+        const result = await manager.run({
+          role: args.role,
+          task: args.task,
+          ...(args.context !== undefined ? { context: args.context } : {}),
+        });
+        if (result.error) {
+          options.traces?.record({ role: args.role, status: "failed", detail: result.error });
+        } else {
+          options.traces?.record({ role: args.role, status: "finished" });
+        }
+        return result;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        options.traces?.record({ role: args.role, status: "failed", detail: message });
+        return {
+          role: args.role,
+          output: "",
+          error: message,
+        };
+      }
     },
   });
 

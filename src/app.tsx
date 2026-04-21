@@ -8,6 +8,7 @@ import { PasswordPrompt } from "./components/password-prompt.js";
 import { ConfirmPrompt } from "./components/confirm-prompt.js";
 import type { AuraSession, AuraModelInfo } from "./session/copilot.js";
 import type { RunStore } from "./runs/run-store.js";
+import type { AgentTraceEvent, AgentTraceStore } from "./agents/agent-trace-store.js";
 import type { CredentialStore, PendingPrompt } from "./ssh/credential-store.js";
 import type { ConfirmationStore, PendingConfirmation } from "./ssh/confirmation-store.js";
 
@@ -16,6 +17,7 @@ interface Props {
   runStore: RunStore;
   credentials: CredentialStore;
   confirmations: ConfirmationStore;
+  agentTraces?: AgentTraceStore;
   bypassPermissions?: boolean;
 }
 
@@ -26,6 +28,7 @@ export function App({
   runStore,
   credentials,
   confirmations,
+  agentTraces,
   bypassPermissions = false,
 }: Props): React.ReactElement {
   const pendingPrompts = useSyncExternalStore<readonly PendingPrompt[]>(
@@ -38,6 +41,11 @@ export function App({
     confirmations.getPending,
     confirmations.getPending,
   );
+  const agentTraceEvents = useSyncExternalStore<readonly AgentTraceEvent[]>(
+    agentTraces?.subscribe ?? noopSubscribe,
+    agentTraces?.getEvents ?? getEmptyAgentTraces,
+    agentTraces?.getEvents ?? getEmptyAgentTraces,
+  );
   const activeConfirmation = pendingConfirmations[0];
   const activePrompt = pendingPrompts[0];
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,6 +56,7 @@ export function App({
   const [currentModel, setCurrentModel] = useState<string | undefined>(() => session.getModel());
   const [availableModels, setAvailableModels] = useState<AuraModelInfo[] | null>(null);
   const nextId = useRef(0);
+  const nextTraceIndex = useRef(0);
 
   const makeId = (): string => {
     const id = `m${nextId.current}`;
@@ -61,6 +70,20 @@ export function App({
       { id: `s${nextId.current++}`, role: "assistant", text },
     ]);
   }, []);
+
+  useEffect(() => {
+    const newEvents = agentTraceEvents.slice(nextTraceIndex.current);
+    nextTraceIndex.current = agentTraceEvents.length;
+    if (newEvents.length === 0) return;
+    setMessages((prev) => [
+      ...prev,
+      ...newEvents.map((event) => ({
+        id: event.id,
+        role: "assistant" as const,
+        text: event.message,
+      })),
+    ]);
+  }, [agentTraceEvents]);
 
   useEffect(() => {
     const unsubscribe = session.subscribe((event) => {
@@ -219,4 +242,16 @@ function formatModelLabel(currentModel: string | undefined, models: AuraModelInf
   if (!currentModel) return "(server default)";
   const match = models?.find((model) => model.id === currentModel);
   return match?.name ?? currentModel;
+}
+
+const EMPTY_AGENT_TRACES: readonly AgentTraceEvent[] = [];
+
+function noopSubscribe(): () => void {
+  return () => {
+    // no-op
+  };
+}
+
+function getEmptyAgentTraces(): readonly AgentTraceEvent[] {
+  return EMPTY_AGENT_TRACES;
 }

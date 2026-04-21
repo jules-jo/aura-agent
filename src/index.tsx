@@ -5,6 +5,7 @@ import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
 import { phase3SystemMessage } from "./session/system-message.js";
 import { CopilotAgentManager } from "./agents/agent-manager.js";
+import { AgentTraceStore } from "./agents/agent-trace-store.js";
 import { RunStore } from "./runs/run-store.js";
 import { startRunCompletionNotifier } from "./runs/run-completion-notifier.js";
 import { localRunTools } from "./tools/local-run.js";
@@ -31,6 +32,7 @@ async function main(): Promise<void> {
   const runStore = new RunStore();
   const credentials = new CredentialStore();
   const confirmations = new ConfirmationStore({ bypass: cli.bypassPermissions });
+  const agentTraces = new AgentTraceStore();
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
@@ -46,7 +48,7 @@ async function main(): Promise<void> {
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
   const tools = [
-    ...agentTools(agentManager),
+    ...agentTools(agentManager, { traces: agentTraces }),
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
     ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
     ...wikiTools({ rootDir: process.cwd(), confirmations }),
@@ -71,6 +73,7 @@ async function main(): Promise<void> {
       runStore={runStore}
       credentials={credentials}
       confirmations={confirmations}
+      agentTraces={agentTraces}
       bypassPermissions={cli.bypassPermissions}
     />,
   );

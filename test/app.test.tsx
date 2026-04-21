@@ -4,6 +4,7 @@ import { render } from "ink-testing-library";
 import { App } from "../src/app.js";
 import type { AuraSession, AssistantEvent, AuraModelInfo } from "../src/session/copilot.js";
 import { RunStore } from "../src/runs/run-store.js";
+import { AgentTraceStore } from "../src/agents/agent-trace-store.js";
 import { CredentialStore } from "../src/ssh/credential-store.js";
 import { ConfirmationStore } from "../src/ssh/confirmation-store.js";
 
@@ -159,6 +160,33 @@ describe("App", () => {
     await flushEffects();
     expect(lastFrame() ?? "").toContain("BYPASS MODE");
     expect(lastFrame() ?? "").toContain("side-effect confirmations are auto-approved");
+  });
+
+  it("renders sidecar agent trace events in the transcript", async () => {
+    const { session } = makeFakeSession();
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const agentTraces = new AgentTraceStore();
+    const { lastFrame } = render(
+      <App
+        session={session}
+        runStore={store}
+        credentials={credentials}
+        confirmations={confirmations}
+        agentTraces={agentTraces}
+      />,
+    );
+    await flushEffects();
+
+    agentTraces.record({ role: "batch_planner", status: "started" });
+    agentTraces.record({ role: "batch_planner", status: "finished" });
+    await flushEffects();
+
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("aura");
+    expect(frame).toContain("I'm delegating to the batch_planner sidecar agent.");
+    expect(frame).toContain("batch_planner sidecar agent finished.");
   });
 
   it("shows the model display name when the current model id matches the model list", async () => {
