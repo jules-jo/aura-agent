@@ -35,6 +35,16 @@ npm start -- --bypass
 The TUI opens with two panes (chat + run placeholder). Type a prompt, press
 Enter, watch the model's response render. Ctrl+C exits.
 
+To plan tests from a spreadsheet, place a `.csv`, `.tsv`, or `.xlsx` file in
+the repo and ask Aura to use the batch planner:
+
+```
+Use the batch planner sidecar agent to read ./test-plan.xlsx and plan what tests should run.
+```
+
+The spreadsheet reader is read-only and is currently scoped to the
+`batch_planner` sidecar agent.
+
 ## Layout
 
 ```

@@ -11,6 +11,7 @@ import { startRunCompletionNotifier } from "./runs/run-completion-notifier.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
 import { agentTools } from "./tools/agents.js";
+import { spreadsheetTools } from "./tools/spreadsheet.js";
 import { wikiReadOnlyTools, wikiTools } from "./tools/wiki.js";
 import { jiraConfigFromEnv, jiraTools } from "./tools/jira.js";
 import { teamsConfigFromEnv, teamsTools } from "./tools/teams.js";
@@ -42,7 +43,10 @@ async function main(): Promise<void> {
   const agentManager = new CopilotAgentManager({
     logLevel: "none",
     toolsByRole: {
-      batch_planner: wikiReadOnlyTools({ rootDir: process.cwd() }),
+      batch_planner: [
+        ...wikiReadOnlyTools({ rootDir: process.cwd() }),
+        ...spreadsheetTools({ rootDir: process.cwd() }),
+      ],
     },
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
