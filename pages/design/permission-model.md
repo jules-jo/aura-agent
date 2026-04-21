@@ -60,7 +60,9 @@ loop works.
 
 ## Bypass mode
 
-- Enabled via a launch flag (`aura --bypass`) or an in-TUI toggle.
+- Enabled via a launch flag (`aura --bypass`) or dangerous-style aliases
+  (`--dangerously-skip-permissions`,
+  `--dangerously-bypass-approvals-and-sandbox`).
 - Applies session-wide. A bypassed session prints a persistent banner so the
   user can't miss that approvals are off.
 - Rationale: the brief explicitly wants agent-in-the-loop as an opt-in mirror of

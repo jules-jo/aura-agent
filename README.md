@@ -26,6 +26,12 @@ npm test
 npm start
 ```
 
+To run with side-effect confirmations auto-approved for the session:
+
+```
+npm start -- --bypass
+```
+
 The TUI opens with two panes (chat + run placeholder). Type a prompt, press
 Enter, watch the model's response render. Ctrl+C exits.
 

@@ -10,15 +10,26 @@ export interface ConfirmationRequest {
   detail: string;
 }
 
+export interface ConfirmationStoreOptions {
+  bypass?: boolean;
+}
+
 type Listener = (pending: readonly PendingConfirmation[]) => void;
 
 export class ConfirmationStore {
   private readonly pending: PendingConfirmation[] = [];
   private readonly listeners = new Set<Listener>();
+  private readonly bypass: boolean;
   private snapshot: readonly PendingConfirmation[] = [];
   private nextId = 0;
 
+  constructor(options: ConfirmationStoreOptions = {}) {
+    this.bypass = options.bypass === true;
+  }
+
   getPending = (): readonly PendingConfirmation[] => this.snapshot;
+
+  isBypassEnabled = (): boolean => this.bypass;
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -28,6 +39,8 @@ export class ConfirmationStore {
   };
 
   async request(req: ConfirmationRequest): Promise<boolean> {
+    if (this.bypass) return true;
+
     return new Promise<boolean>((resolve) => {
       const id = `c${this.nextId++}`;
       const entry: PendingConfirmation = {

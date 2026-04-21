@@ -16,11 +16,18 @@ interface Props {
   runStore: RunStore;
   credentials: CredentialStore;
   confirmations: ConfirmationStore;
+  bypassPermissions?: boolean;
 }
 
 type Status = "idle" | "thinking" | "error";
 
-export function App({ session, runStore, credentials, confirmations }: Props): React.ReactElement {
+export function App({
+  session,
+  runStore,
+  credentials,
+  confirmations,
+  bypassPermissions = false,
+}: Props): React.ReactElement {
   const pendingPrompts = useSyncExternalStore<readonly PendingPrompt[]>(
     credentials.subscribe,
     credentials.getPending,
@@ -161,6 +168,11 @@ export function App({ session, runStore, credentials, confirmations }: Props): R
         <Text color="cyan">{formatModelLabel(currentModel, availableModels)}</Text>
         <Text color="gray"> (/model to switch)</Text>
       </Box>
+      {bypassPermissions ? (
+        <Box>
+          <Text bold color="red">BYPASS MODE: side-effect confirmations are auto-approved.</Text>
+        </Box>
+      ) : null}
       <Box flexDirection="row">
         <Box flexDirection="column" width="60%">
           <ChatPane

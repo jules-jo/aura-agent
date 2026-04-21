@@ -142,6 +142,25 @@ describe("App", () => {
     expect(lastFrame() ?? "").toContain("(server default)");
   });
 
+  it("shows a persistent bypass banner when bypass permissions are enabled", async () => {
+    const { session } = makeFakeSession();
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore({ bypass: true });
+    const { lastFrame } = render(
+      <App
+        session={session}
+        runStore={store}
+        credentials={credentials}
+        confirmations={confirmations}
+        bypassPermissions
+      />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("BYPASS MODE");
+    expect(lastFrame() ?? "").toContain("side-effect confirmations are auto-approved");
+  });
+
   it("shows the model display name when the current model id matches the model list", async () => {
     const { session } = makeFakeSession({
       initialModel: "anthropic/claude-opus-4-6",

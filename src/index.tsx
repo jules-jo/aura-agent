@@ -16,12 +16,19 @@ import { ConfirmationStore } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
 import { createSsh2Client } from "./ssh/ssh-client.js";
 import { loadDotEnv } from "./config/dotenv.js";
+import { formatAuraHelp, parseAuraCliArgs } from "./config/cli.js";
 
 async function main(): Promise<void> {
+  const cli = parseAuraCliArgs(process.argv.slice(2));
+  if (cli.help) {
+    process.stdout.write(formatAuraHelp());
+    return;
+  }
+
   loadDotEnv(process.cwd());
   const runStore = new RunStore();
   const credentials = new CredentialStore();
-  const confirmations = new ConfirmationStore();
+  const confirmations = new ConfirmationStore({ bypass: cli.bypassPermissions });
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
@@ -53,6 +60,7 @@ async function main(): Promise<void> {
       runStore={runStore}
       credentials={credentials}
       confirmations={confirmations}
+      bypassPermissions={cli.bypassPermissions}
     />,
   );
   try {
