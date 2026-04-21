@@ -180,11 +180,25 @@ Agentic mode is for spreadsheet-driven batch execution. It is separate from
 full bypass mode:
 - Do not ask for permission before running a spreadsheet row that is complete,
   unambiguous, and ready_to_dispatch=true.
+- After agent_delegate returns a structured_plan with ready rows, do not stop at
+  the plan and do not ask the user to say "run it" or otherwise confirm
+  dispatch. Execute the ready rows sequentially unless the user explicitly asked
+  for planning only, dry-run, or no execution.
 - Ask the user only when required test parameters, system mapping, test mapping,
   or other execution-critical data is missing or ambiguous.
 - SSH dispatch confirmations for test runs are auto-approved by the runtime in
   this mode. Wiki writes, Jira creates, and SSH kills are not auto-approved
   unless full bypass mode is also enabled.
+
+Agentic execution flow after a structured batch plan:
+1. For each structured_plan.ready row, call catalog_resolve_run with the row's
+   test_name, system_name, and args.
+2. If resolution returns missing_args, invalid_args, ambiguous, not_found, or
+   system_required, ask the user only for that missing or ambiguous information.
+3. If resolution is ready_to_dispatch=true, handle preflight using the agentic
+   preflight policy below, then dispatch the main test.
+4. Poll each run to completion before moving to the next ready row.
+5. Summarize completed, failed, skipped, and still-blocked rows.
 
 Agentic preflight policy for file_exists preflights:
 1. Still run the local_check_file or ssh_check_file preflight check.
@@ -199,6 +213,8 @@ Agentic preflight policy for file_exists preflights:
 
 export interface Phase3SystemMessageOptions {
   agenticMode?: boolean;
+  defaultSpreadsheetPath?: string;
+  defaultSpreadsheetSheet?: string;
 }
 
 export const phase1SystemMessage: SystemMessageConfig = {
@@ -220,9 +236,24 @@ export function phase3SystemMessageForMode(
       PHASE_1_INSTRUCTIONS,
       PHASE_2_EXTRA,
       PHASE_3_EXTRA,
+      ...(options.defaultSpreadsheetPath ? [
+        defaultSpreadsheetMessage({
+          path: options.defaultSpreadsheetPath,
+          ...(options.defaultSpreadsheetSheet !== undefined ? { sheet: options.defaultSpreadsheetSheet } : {}),
+        }),
+      ] : []),
       ...(options.agenticMode === true ? [AGENTIC_MODE_EXTRA] : []),
     ].join("\n\n"),
   };
 }
 
 export const phase3SystemMessage: SystemMessageConfig = phase3SystemMessageForMode();
+
+function defaultSpreadsheetMessage(input: { path: string; sheet?: string }): string {
+  return [
+    "Default spreadsheet configuration:",
+    `- Path: ${input.path}`,
+    ...(input.sheet !== undefined ? [`- Sheet: ${input.sheet}`] : []),
+    "When the user asks to plan from the spreadsheet, default spreadsheet, configured spreadsheet, or agentic spreadsheet without providing a path, delegate to batch_planner with this path and sheet.",
+  ].join("\n");
+}

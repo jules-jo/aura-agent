@@ -40,6 +40,8 @@ async function main(): Promise<void> {
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
+  const defaultSpreadsheetPath = readOptionalEnv("AURA_AGENTIC_SPREADSHEET_PATH");
+  const defaultSpreadsheetSheet = readOptionalEnv("AURA_AGENTIC_SPREADSHEET_SHEET");
   const teamsConfig = teamsConfigFromEnv(process.env);
   const runCompletionNotifier = startRunCompletionNotifier(runStore, { teams: teamsConfig });
   const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
@@ -70,7 +72,11 @@ async function main(): Promise<void> {
   const session = await startSession({
     logLevel: "none",
     tools,
-    systemMessage: phase3SystemMessageForMode({ agenticMode: cli.agenticMode }),
+    systemMessage: phase3SystemMessageForMode({
+      agenticMode: cli.agenticMode,
+      ...(defaultSpreadsheetPath !== undefined ? { defaultSpreadsheetPath } : {}),
+      ...(defaultSpreadsheetSheet !== undefined ? { defaultSpreadsheetSheet } : {}),
+    }),
     ...(process.env.AURA_MODEL ? { model: process.env.AURA_MODEL } : {}),
     ...(idleTimeoutMs !== undefined ? { idleTimeoutMs } : {}),
   });
@@ -102,6 +108,11 @@ function parsePositiveInt(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const n = Number.parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function readOptionalEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
 }
 
 main().catch((err: unknown) => {

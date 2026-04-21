@@ -39,6 +39,19 @@ for missing or ambiguous inputs:
 npm start -- --agentic
 ```
 
+You can set a default spreadsheet in `.env`:
+
+```
+AURA_AGENTIC_SPREADSHEET_PATH=./test-plan.xlsx
+AURA_AGENTIC_SPREADSHEET_SHEET=Plan
+```
+
+Then prompt Aura with:
+
+```
+Plan from the default spreadsheet.
+```
+
 The TUI opens with two panes (chat + run placeholder). Type a prompt, press
 Enter, watch the model's response render. Ctrl+C exits.
 

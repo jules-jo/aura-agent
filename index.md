@@ -19,13 +19,16 @@
 - [Context Compaction](pages/design/context-compaction.md) -- SDK-native background compaction plus test-aware rollup over long poll histories
 - [Credentials](pages/design/credentials.md) -- `age`-encrypted credentials file; test catalog references `credential_id`, never the password
 - [Roadmap](pages/design/roadmap.md) -- Phased v1 plan from walking-skeleton through compaction
+- [Work IQ MCP](pages/design/work-iq-mcp.md) -- Future Microsoft 365 context option for Teams, SharePoint, Excel, and change-intake workflows
 - [Open Questions](pages/design/open-questions.md) -- Ambiguities tracked to resolution
+- [Known Issues](pages/design/known-issues.md) -- Backlog of bugs and rough edges to address later
 
 ## Decisions
 _Empty. Add ADRs here as non-trivial choices get made._
 
 ## Tests
-_Empty. Add per-test spec pages under `pages/tests/` as the catalog grows._
+- [Local Vitest](pages/tests/local-vitest.md) -- Runs `npm test` in this repository as the default local smoke check
+- [Local Vitest Pattern](pages/tests/local-vitest-pattern.md) -- Runs a focused `npx vitest run {{pattern}}` command after asking for a required pattern
 
 ## Runs
 _Empty. Populated automatically by the agent on every completed test run._
