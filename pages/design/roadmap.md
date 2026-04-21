@@ -1,7 +1,7 @@
 ---
 tags: [design, roadmap, plan]
 created: 2026-04-17
-updated: 2026-04-17
+updated: 2026-04-21
 sources: [raw/aura-agent-brief-2026-04-16.md]
 ---
 
@@ -164,6 +164,58 @@ Order by whatever bites first when dogfooding:
 - Additional test-output parsers (go test, JUnit XML, generic regex).
 - OS notifications once the user walks away from the TUI -- out of the TUI-only v1 scope, but cheap to bolt on.
 
+## Phase 10 -- Change intake and autonomous test planning
+
+**Goal**: aura can inspect a structured change source, decide which cataloged
+tests should run, and present a test plan with reasons.
+
+Ships:
+- Change-source readers for at least one practical source, likely Excel/CSV
+  first. Later sources can include Google Sheets, Jira filters, Git diffs, or
+  database exports.
+- Normalized `changed_item` records with stable fields such as component,
+  requirement id, file/path, owner, risk, and free-form notes.
+- Test-selection metadata in `pages/tests/*.md`, for example covered
+  components, requirement ids, tags, risk areas, or explicit matching rules.
+- `plan_tests_for_changes` orchestration: input changed items, output selected
+  tests, target systems, required args still missing, and human-readable
+  selection reasons.
+- Permission-aware run-plan approval: user can approve the whole plan or edit
+  the selected tests before execution.
+- Report summary: what changed, what was selected, why, what ran, and what
+  passed/failed.
+
+Done when: given a representative spreadsheet/change export, aura proposes a
+defensible test plan, asks for approval, runs the approved tests, and reports
+the results without the user naming each test manually.
+
+Out of scope: true multi-agent execution, continuous watchers/daemons, and
+fully unattended operation without the Phase 5 permission policy.
+
+## Phase 11 -- Multi-agent execution and reporting
+
+**Goal**: split autonomous planning/running/reporting into coordinated agents
+only after the single-agent planner is stable.
+
+Ships:
+- One coordinator/planner agent that owns change intake, test selection, run
+  deduplication, and final user-facing decisions.
+- One or more runner agents that execute approved tests, ideally scoped by
+  target system or test group.
+- Optional reporter/Jira agent that turns structured run results into final
+  summaries and issue drafts.
+- Shared durable state for plans, runs, ownership, retries, and already-filed
+  Jira issues so agents do not duplicate work.
+- Clear cancellation and approval semantics: the coordinator remains the
+  authority for starting, stopping, and escalating side effects.
+
+Done when: aura can run an approved multi-test plan across multiple targets
+with independent runner agents, preserve a coherent final summary, and avoid
+duplicate runs or duplicate Jira tickets.
+
+Out of scope: multi-user scheduling, distributed service deployment, and
+always-on production operation.
+
 ## Dependencies at a glance
 
 ```
@@ -182,18 +234,24 @@ P0 (skeleton)
                       P8 (compaction)
                        v
                       P9 (polish)
+                       v
+                      P10 (change intake, test planning)
+                       v
+                      P11 (multi-agent execution)
 ```
 
 P3 and P4 can partially overlap (P4 only depends on P3 at the catalog-schema
 level, not on its MCP tool work). Everything from P5 onward assumes P1-P4 are
-in place.
+in place. P10 assumes P6 summaries/logging and P5 permissions are solid enough
+to support plan approval. P11 assumes P10 has a deterministic single-agent
+planner to coordinate from.
 
 ## Explicit non-goals for v1
 
 - Cross-channel notifications (Slack / Teams / email). TUI only.
 - Multi-user / multi-tenant operation.
 - Containerised or CI-triggered test targets.
-- Parallel test execution in one session.
+- Parallel or multi-agent test execution before P11.
 - Web UI or anything that isn't the terminal.
 
 ## Related

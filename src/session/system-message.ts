@@ -89,6 +89,14 @@ const PHASE_3_EXTRA = `You can resolve named tests from the wiki:
   preview_markdown to the user, and ask whether to create it. Only call
   jira_create_issue after the user approves the preview. Do not create Jira
   issues automatically.
+- teams_send_notification({ title, text, status?, facts? }) posts a Microsoft
+  Teams notification through the configured Teams Workflows webhook. The runtime
+  automatically sends one Teams notification when each local_dispatch or
+  ssh_dispatch run reaches completed or failed status, so do not call this tool
+  for normal test-completion notifications. Only call it when the user
+  explicitly asks to send an extra Teams message. If the tool returns
+  missing_config or disabled, do not retry and do not treat that as a test
+  failure.
 
 When the user asks to "run test X", "run X", or otherwise references a named
 test/spec rather than giving an inline shell command:

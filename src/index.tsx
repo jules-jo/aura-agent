@@ -5,10 +5,12 @@ import { App } from "./app.js";
 import { startSession } from "./session/copilot.js";
 import { phase3SystemMessage } from "./session/system-message.js";
 import { RunStore } from "./runs/run-store.js";
+import { startRunCompletionNotifier } from "./runs/run-completion-notifier.js";
 import { localRunTools } from "./tools/local-run.js";
 import { sshRunTools } from "./tools/ssh-run.js";
 import { wikiTools } from "./tools/wiki.js";
 import { jiraConfigFromEnv, jiraTools } from "./tools/jira.js";
+import { teamsConfigFromEnv, teamsTools } from "./tools/teams.js";
 import { CredentialStore } from "./ssh/credential-store.js";
 import { ConfirmationStore } from "./ssh/confirmation-store.js";
 import { RunStateStore } from "./ssh/run-state-store.js";
@@ -23,6 +25,8 @@ async function main(): Promise<void> {
   const runStateStore = new RunStateStore();
   const sshClient = createSsh2Client();
   const useAgentAuth = process.env.AURA_SSH_USE_AGENT === "1";
+  const teamsConfig = teamsConfigFromEnv(process.env);
+  const runCompletionNotifier = startRunCompletionNotifier(runStore, { teams: teamsConfig });
   const tools = [
     ...localRunTools(runStore, { defaultCwd: process.cwd() }),
     ...sshRunTools(runStore, { sshClient, credentials, confirmations, runStateStore, useAgentAuth }),
@@ -30,6 +34,9 @@ async function main(): Promise<void> {
     ...jiraTools({
       confirmations,
       config: jiraConfigFromEnv(process.env),
+    }),
+    ...teamsTools({
+      config: teamsConfig,
     }),
   ];
   const idleTimeoutMs = parsePositiveInt(process.env.AURA_IDLE_TIMEOUT_MS);
@@ -51,6 +58,7 @@ async function main(): Promise<void> {
   try {
     await waitUntilExit();
   } finally {
+    runCompletionNotifier.close();
     await session.close();
   }
 }
