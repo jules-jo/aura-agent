@@ -6,6 +6,7 @@ import { RunPane } from "./components/run-pane.js";
 import { PromptInput } from "./components/prompt-input.js";
 import { PasswordPrompt } from "./components/password-prompt.js";
 import { ConfirmPrompt } from "./components/confirm-prompt.js";
+import { StartupPanel } from "./components/startup-panel.js";
 import type { AuraSession, AuraModelInfo } from "./session/copilot.js";
 import type { RunStore } from "./runs/run-store.js";
 import type { AgentTraceEvent, AgentTraceStore } from "./agents/agent-trace-store.js";
@@ -59,6 +60,8 @@ export function App({
   const [availableModels, setAvailableModels] = useState<AuraModelInfo[] | null>(null);
   const nextId = useRef(0);
   const nextTraceIndex = useRef(0);
+  const modelLabel = formatModelLabel(currentModel, availableModels);
+  const showStartup = messages.length === 0 && !pending;
 
   const makeId = (): string => {
     const id = `m${nextId.current}`;
@@ -190,7 +193,7 @@ export function App({
         <Text bold color="magenta">aura</Text>
         <Text color="gray"> -- test-running agent -- ctrl+c to exit</Text>
         <Text color="gray"> -- model: </Text>
-        <Text color="cyan">{formatModelLabel(currentModel, availableModels)}</Text>
+        <Text color="cyan">{modelLabel}</Text>
         <Text color="gray"> (/model to switch)</Text>
       </Box>
       {bypassPermissions ? (
@@ -204,6 +207,13 @@ export function App({
             AGENTIC MODE: complete spreadsheet rows can run without per-test approval.
           </Text>
         </Box>
+      ) : null}
+      {showStartup ? (
+        <StartupPanel
+          modelLabel={modelLabel}
+          bypassPermissions={bypassPermissions}
+          agenticMode={agenticMode}
+        />
       ) : null}
       <Box flexDirection="row">
         <Box flexDirection="column" width="60%">

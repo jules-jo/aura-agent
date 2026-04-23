@@ -90,6 +90,47 @@ describe("App", () => {
     expect(frame).toContain("run");
   });
 
+  it("shows a startup panel before the first prompt", async () => {
+    const { session } = makeFakeSession({ initialModel: "claude-opus-4.6" });
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const { lastFrame } = render(
+      <App
+        session={session}
+        runStore={store}
+        credentials={credentials}
+        confirmations={confirmations}
+        agenticMode
+      />,
+    );
+    await flushEffects();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("AURA");
+    expect(frame).toContain("agentic test runner");
+    expect(frame).toContain("model claude-opus-4.6");
+    expect(frame).toContain("mode agentic");
+    expect(frame).toContain("batch_planner -> agentic_run_plan -> log_analyst");
+    expect(frame).toContain("Read the default spreadsheet, create a batch plan, and run the ready tests.");
+  });
+
+  it("hides the startup panel after the first submitted prompt", async () => {
+    const { session } = makeFakeSession();
+    const store = new RunStore();
+    const credentials = new CredentialStore();
+    const confirmations = new ConfirmationStore();
+    const { lastFrame, stdin } = render(
+      <App session={session} runStore={store} credentials={credentials} confirmations={confirmations} />,
+    );
+    await flushEffects();
+    expect(lastFrame() ?? "").toContain("agentic test runner");
+    stdin.write("hello");
+    await flushEffects();
+    stdin.write("\r");
+    await flushEffects();
+    expect(lastFrame() ?? "").not.toContain("agentic test runner");
+  });
+
   it("appends assistant final responses to the chat pane", async () => {
     const { session, emit } = makeFakeSession();
     const store = new RunStore();
