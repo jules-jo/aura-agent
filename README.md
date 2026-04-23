@@ -54,7 +54,8 @@ Scoped variable names are normalized from `credential_id`, or from
 `username@host` when `credential_id` is omitted. For example,
 `root@192.168.1.10` becomes `AURA_SSH_PASSWORD_ROOT_192_168_1_10`.
 
-You can set a default spreadsheet in `.env`:
+You can set a default spreadsheet in `.env`. The path can be repo-relative or
+an absolute local path:
 
 ```
 AURA_AGENTIC_SPREADSHEET_PATH=./test-plan.xlsx

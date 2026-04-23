@@ -320,6 +320,6 @@ function defaultSpreadsheetMessage(input: { path: string; sheet?: string }): str
     "Default spreadsheet configuration:",
     `- Path: ${input.path}`,
     ...(input.sheet !== undefined ? [`- Sheet: ${input.sheet}`] : []),
-    "When the user asks to plan from the spreadsheet, default spreadsheet, configured spreadsheet, or agentic spreadsheet without providing a path, delegate to batch_planner with this path and sheet. If you later call agentic_run_plan or agentic_record_jira_key for that plan, pass this same path and sheet.",
+    "Spreadsheet paths may be repo-relative or absolute local filesystem paths. When the user asks to plan from the spreadsheet, default spreadsheet, configured spreadsheet, or agentic spreadsheet without providing a path, delegate to batch_planner with this path and sheet. If you later call agentic_run_plan or agentic_record_jira_key for that plan, pass this same path and sheet.",
   ].join("\n");
 }

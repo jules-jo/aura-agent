@@ -4,10 +4,12 @@ import ExcelJS from "exceljs";
 import { z } from "zod";
 import { defineTool } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
-import { resolveRepoPath } from "../wiki/pages.js";
 
 const spreadsheetReadSchema = z.object({
-  path: z.string().min(1).describe("Spreadsheet path relative to the repo root. Supports .csv, .tsv, and .xlsx."),
+  path: z
+    .string()
+    .min(1)
+    .describe("Spreadsheet path. Supports repo-relative paths, absolute local paths, .csv, .tsv, and .xlsx."),
   sheet_name: z.string().min(1).optional().describe("Optional sheet name for .xlsx files. Defaults to the first sheet."),
   max_rows: z
     .number()
@@ -100,23 +102,22 @@ export async function readSpreadsheet(
   rootDir: string,
   options: ReadSpreadsheetOptions,
 ): Promise<SpreadsheetReadResult> {
-  const repoPath = normalizeRepoPath(options.path);
-  const absolutePath = resolveRepoPath(rootDir, repoPath);
+  const spreadsheetPath = resolveSpreadsheetPath(rootDir, options.path);
   const maxRows = options.maxRows ?? 100;
-  const ext = path.extname(repoPath).toLowerCase();
+  const ext = path.extname(spreadsheetPath.absolutePath).toLowerCase();
 
   if (ext === ".csv") {
-    const raw = await fs.readFile(absolutePath, "utf8");
-    return tableToResult(repoPath, "csv", null, [], parseDelimited(raw, ","), maxRows);
+    const raw = await fs.readFile(spreadsheetPath.absolutePath, "utf8");
+    return tableToResult(spreadsheetPath.displayPath, "csv", null, [], parseDelimited(raw, ","), maxRows);
   }
 
   if (ext === ".tsv") {
-    const raw = await fs.readFile(absolutePath, "utf8");
-    return tableToResult(repoPath, "tsv", null, [], parseDelimited(raw, "\t"), maxRows);
+    const raw = await fs.readFile(spreadsheetPath.absolutePath, "utf8");
+    return tableToResult(spreadsheetPath.displayPath, "tsv", null, [], parseDelimited(raw, "\t"), maxRows);
   }
 
   if (ext === ".xlsx") {
-    return readXlsx(repoPath, absolutePath, options.sheetName, maxRows);
+    return readXlsx(spreadsheetPath.displayPath, spreadsheetPath.absolutePath, options.sheetName, maxRows);
   }
 
   throw new Error("unsupported spreadsheet format; expected .csv, .tsv, or .xlsx");
@@ -126,21 +127,20 @@ export async function writeSpreadsheetUpdates(
   rootDir: string,
   options: SpreadsheetWriteOptions,
 ): Promise<SpreadsheetWriteResult> {
-  const repoPath = normalizeRepoPath(options.path);
-  const absolutePath = resolveRepoPath(rootDir, repoPath);
-  const ext = path.extname(repoPath).toLowerCase();
+  const spreadsheetPath = resolveSpreadsheetPath(rootDir, options.path);
+  const ext = path.extname(spreadsheetPath.absolutePath).toLowerCase();
   if (options.updates.length === 0) {
     throw new Error("at least one spreadsheet update is required");
   }
 
   if (ext === ".csv" || ext === ".tsv") {
     const delimiter = ext === ".csv" ? "," : "\t";
-    const raw = await fs.readFile(absolutePath, "utf8");
+    const raw = await fs.readFile(spreadsheetPath.absolutePath, "utf8");
     const table = parseDelimited(raw, delimiter);
     const result = applyTableUpdates(table, options.updates);
-    await fs.writeFile(absolutePath, serializeDelimited(table, delimiter), "utf8");
+    await fs.writeFile(spreadsheetPath.absolutePath, serializeDelimited(table, delimiter), "utf8");
     return {
-      path: repoPath,
+      path: spreadsheetPath.displayPath,
       format: ext === ".csv" ? "csv" : "tsv",
       sheet_name: null,
       updated_rows: result.updatedRows,
@@ -150,7 +150,7 @@ export async function writeSpreadsheetUpdates(
 
   if (ext === ".xlsx") {
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(absolutePath);
+    await workbook.xlsx.readFile(spreadsheetPath.absolutePath);
     const worksheet = options.sheetName
       ? workbook.getWorksheet(options.sheetName)
       : workbook.worksheets[0];
@@ -163,9 +163,9 @@ export async function writeSpreadsheetUpdates(
       );
     }
     const result = applyWorksheetUpdates(worksheet, options.updates);
-    await workbook.xlsx.writeFile(absolutePath);
+    await workbook.xlsx.writeFile(spreadsheetPath.absolutePath);
     return {
-      path: repoPath,
+      path: spreadsheetPath.displayPath,
       format: "xlsx",
       sheet_name: worksheet.name,
       updated_rows: result.updatedRows,
@@ -346,8 +346,21 @@ function normalizeColumnKey(value: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function normalizeRepoPath(repoPath: string): string {
-  return repoPath.trim().replace(/\\/g, "/").replace(/^\.\/+/, "");
+interface ResolvedSpreadsheetPath {
+  displayPath: string;
+  absolutePath: string;
+}
+
+function resolveSpreadsheetPath(rootDir: string, inputPath: string): ResolvedSpreadsheetPath {
+  const trimmed = inputPath.trim();
+  if (!trimmed) throw new Error("spreadsheet path is required");
+  if (trimmed.includes("\0")) throw new Error("spreadsheet path contains null byte");
+  const absolutePath = path.isAbsolute(trimmed) ? path.resolve(trimmed) : path.resolve(rootDir, trimmed);
+  const relativeToRoot = path.relative(rootDir, absolutePath);
+  const displayPath = relativeToRoot && !relativeToRoot.startsWith("..") && !path.isAbsolute(relativeToRoot)
+    ? relativeToRoot.replace(/\\/g, "/")
+    : absolutePath;
+  return { displayPath, absolutePath };
 }
 
 function applyTableUpdates(
@@ -471,7 +484,7 @@ function assertWritableRow(rowNumber: number): void {
 }
 
 function classifySpreadsheetError(err: unknown): string {
-  if (err instanceof Error && /path escapes repo root|path is required/i.test(err.message)) return "invalid_path";
+  if (err instanceof Error && /spreadsheet path is required|path contains null byte/i.test(err.message)) return "invalid_path";
   if (err instanceof Error && /unsupported spreadsheet format/i.test(err.message)) return "unsupported_format";
   if (err instanceof Error && /sheet not found|no worksheets/i.test(err.message)) return "sheet_not_found";
   if (typeof err === "object" && err !== null && (err as { code?: string }).code === "ENOENT") return "not_found";

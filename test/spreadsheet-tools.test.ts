@@ -150,14 +150,57 @@ describe("spreadsheet tools", () => {
     });
   });
 
+  it("reads and writes spreadsheet files outside the repo root by absolute path", async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), "aura-spreadsheet-outside-"));
+    try {
+      const filePath = path.join(outsideDir, "plan.csv");
+      await fs.writeFile(filePath, "Test Name\nExternal Test\n", "utf8");
+
+      const read = await readSpreadsheet(rootDir, { path: filePath });
+      expect(read).toMatchObject({
+        path: filePath,
+        format: "csv",
+        row_count: 1,
+      });
+
+      const write = await writeSpreadsheetUpdates(rootDir, {
+        path: filePath,
+        updates: [
+          {
+            rowNumber: 2,
+            values: {
+              aura_status: "success",
+              aura_summary: "external spreadsheet updated",
+            },
+          },
+        ],
+      });
+
+      expect(write).toMatchObject({
+        path: filePath,
+        format: "csv",
+        updated_rows: [2],
+        updated_columns: ["aura_status", "aura_summary"],
+      });
+      const reread = await readSpreadsheet(rootDir, { path: filePath });
+      expect(reread.rows[0]).toMatchObject({
+        test_name: "External Test",
+        aura_status: "success",
+        aura_summary: "external spreadsheet updated",
+      });
+    } finally {
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it("returns structured errors from spreadsheet_read", async () => {
     const tools = spreadsheetTools({ rootDir });
     const result = await callHandler<{ error: string; message: string }>(tools, "spreadsheet_read", {
-      path: "../outside.csv",
+      path: "  ",
     });
 
     expect(result.error).toBe("invalid_path");
-    expect(result.message).toContain("path escapes repo root");
+    expect(result.message).toContain("spreadsheet path is required");
   });
 
   it("reports missing XLSX sheets", async () => {
