@@ -14,25 +14,33 @@ export function StartupPanel({
 }: Props): React.ReactElement {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
-      <Box>
-        <Text bold color="cyan">AURA</Text>
-        <Text color="gray"> / agentic test runner</Text>
+      <Box flexDirection="row">
+        <BrandGraphic />
+        <Box flexDirection="column" marginLeft={2} flexGrow={1}>
+          <Box>
+            <Text bold color="cyan">AURA</Text>
+            <Text color="gray"> / agentic test runner</Text>
+          </Box>
+          <Text color="gray">orchestrate lab systems, spreadsheets, SSH runs, and failure reports</Text>
+          <Box marginTop={1}>
+            <Text color="gray">model </Text>
+            <Text color="cyan">{modelLabel}</Text>
+            <Text color="gray">  mode </Text>
+            <Text color={agenticMode ? "yellow" : "gray"}>{agenticMode ? "agentic" : "interactive"}</Text>
+            <Text color="gray">  permissions </Text>
+            <Text color={bypassPermissions ? "red" : "green"}>{bypassPermissions ? "bypass" : "confirm"}</Text>
+          </Box>
+        </Box>
       </Box>
-      <Box marginTop={1}>
-        <Text color="gray">model </Text>
-        <Text color="cyan">{modelLabel}</Text>
-        <Text color="gray">  mode </Text>
-        <Text color={agenticMode ? "yellow" : "gray"}>{agenticMode ? "agentic" : "interactive"}</Text>
-        <Text color="gray">  permissions </Text>
-        <Text color={bypassPermissions ? "red" : "green"}>{bypassPermissions ? "bypass" : "confirm"}</Text>
-      </Box>
-      <Box marginTop={1}>
-        <Text color="gray">flow </Text>
-        <Text>batch_planner</Text>
-        <Text color="gray">{" -> "}</Text>
-        <Text>agentic_run_plan</Text>
-        <Text color="gray">{" -> "}</Text>
-        <Text>log_analyst</Text>
+      <Box marginTop={1} flexDirection="column">
+        <Text color="gray">signal map</Text>
+        <Text>
+          <Text color="cyan">batch_planner</Text>
+          <Text color="gray">{" -> "}</Text>
+          <Text color="yellow">agentic_run_plan</Text>
+          <Text color="gray">{" -> "}</Text>
+          <Text color="green">log_analyst</Text>
+        </Text>
       </Box>
       <Box flexDirection="row" gap={2} marginTop={1}>
         <Capability title="Plan" body="Read spreadsheets and resolve catalog rows." />
@@ -45,6 +53,18 @@ export function StartupPanel({
         <Text color="cyan">{"> "}<Text>Run Test Z in System A with profile front.</Text></Text>
         <Text color="cyan">{"> "}<Text>/model</Text><Text color="gray"> to inspect or switch models</Text></Text>
       </Box>
+    </Box>
+  );
+}
+
+function BrandGraphic(): React.ReactElement {
+  return (
+    <Box flexDirection="column">
+      <Text color="cyan">{"  /\\        "}</Text>
+      <Text color="cyan">{" /  \\  AURA "}</Text>
+      <Text color="cyan">{"< () >      "}</Text>
+      <Text color="cyan">{" \\  /  LAB  "}</Text>
+      <Text color="cyan">{"  \\/        "}</Text>
     </Box>
   );
 }

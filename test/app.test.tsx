@@ -107,6 +107,8 @@ describe("App", () => {
     await flushEffects();
     const frame = lastFrame() ?? "";
     expect(frame).toContain("AURA");
+    expect(frame).toContain("LAB");
+    expect(frame).toContain("signal map");
     expect(frame).toContain("agentic test runner");
     expect(frame).toContain("model claude-opus-4.6");
     expect(frame).toContain("mode agentic");
