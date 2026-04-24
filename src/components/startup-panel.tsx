@@ -60,11 +60,13 @@ export function StartupPanel({
 function BrandGraphic(): React.ReactElement {
   return (
     <Box flexDirection="column">
-      <Text color="cyan">{"  /\\        "}</Text>
-      <Text color="cyan">{" /  \\  AURA "}</Text>
-      <Text color="cyan">{"< () >      "}</Text>
-      <Text color="cyan">{" \\  /  LAB  "}</Text>
-      <Text color="cyan">{"  \\/        "}</Text>
+      <Text color="cyan">{"    /\\\\      /\\\\      "}</Text>
+      <Text color="cyan">{"   /\\  \\\\ /\\ /  /\\     "}</Text>
+      <Text color="cyan">{"  / /\\  \\/// /\\ \\ \\    "}</Text>
+      <Text color="cyan">{" /_/  \\__/\\\\/__\\_\\ \\   "}</Text>
+      <Text color="cyan">{" \\ \\  /\\  A U R A / /   "}</Text>
+      <Text color="cyan">{"  \\_\\/ / /_L_A_B/ /    "}</Text>
+      <Text color="cyan">{"      \\/_/     \\/_/     "}</Text>
     </Box>
   );
 }
